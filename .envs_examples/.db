@@ -1,0 +1,8 @@
+POSTGRES_DB=multilingual_vids
+POSTGRES_USER=multilingual_vids
+POSTGRES_PASSWORD=multilingual_vids
+DATABASE_DB=multilingual_vids
+DATABASE_USER=multilingual_vids
+DATABASE_PASSWORD=multilingual_vids
+DATABASE_HOST=db
+DATABASE_PORT=5432

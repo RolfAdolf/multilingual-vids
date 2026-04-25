@@ -1,0 +1,15 @@
+venv
+.envs
+storage
+node_modules
+dist
+
+.idea
+.DS_Store
+
+__pycache__
+.cache
+
+log
+logs
+*.log

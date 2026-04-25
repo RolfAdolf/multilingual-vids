@@ -1,0 +1,52 @@
+version: "3.8"
+
+volumes:
+  multilingual_vids_db_data:
+  multilingual_vids_storage:
+
+networks:
+  multilingual_vids:
+    driver: bridge
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ./backend/compose/Dockerfile
+    command: /start.sh
+    env_file:
+      - .envs/.app
+      - .envs/.db
+    ports:
+      - "8888:8888"
+    volumes:
+      - multilingual_vids_storage:/storage
+    depends_on:
+      - db
+    networks:
+      - multilingual_vids
+    restart: on-failure
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8888
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - multilingual_vids
+
+  db:
+    image: postgres:15
+    env_file:
+      - .envs/.db
+    ports:
+      - "5432:5432"
+    volumes:
+      - multilingual_vids_db_data:/var/lib/postgresql/data
+    networks:
+      - multilingual_vids
