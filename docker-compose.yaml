@@ -1,52 +1,172 @@
-version: "3.8"
-
-volumes:
-  multilingual_vids_db_data:
-  multilingual_vids_storage:
-
-networks:
-  multilingual_vids:
-    driver: bridge
-
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: ./backend/compose/Dockerfile
-    command: /start.sh
-    env_file:
-      - .envs/.app
-      - .envs/.db
-    ports:
-      - "8888:8888"
-    volumes:
-      - multilingual_vids_storage:/storage
-    depends_on:
-      - db
-    networks:
-      - multilingual_vids
-    restart: on-failure
-
-  frontend:
-    build:
-      context: .
-      dockerfile: ./frontend/Dockerfile
+  postgres:
+    image: postgres:15-alpine
     environment:
-      VITE_API_BASE_URL: http://localhost:8888
-    ports:
-      - "5173:5173"
-    depends_on:
-      - backend
-    networks:
-      - multilingual_vids
-
-  db:
-    image: postgres:15
-    env_file:
-      - .envs/.db
+      POSTGRES_USER: mv
+      POSTGRES_PASSWORD: mv
+      POSTGRES_DB: multilingual_videos
     ports:
       - "5432:5432"
     volumes:
-      - multilingual_vids_db_data:/var/lib/postgresql/data
-    networks:
-      - multilingual_vids
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mv -d multilingual_videos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  core-api:
+    build:
+      context: .
+      dockerfile: core-api/Dockerfile
+    env_file:
+      - .envs/.db
+      - .envs/.core-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+    working_dir: /app/src
+    volumes:
+      - ./core-api/src:/app/src
+
+  worker-api:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    env_file:
+      - .envs/.s3
+      - .envs/.worker-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      core-api:
+        condition: service_started
+    volumes:
+      - ./core-api/src:/app/core-api/src
+      - ./worker/src:/app/worker/src
+
+  worker-seamless:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        POETRY_GROUP: seamless
+    entrypoint: ["/app/worker/scripts/entrypoint-celery.sh"]
+    env_file:
+      - .envs/.s3
+      - .envs/.worker-seamless
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      worker-api:
+        condition: service_started
+    volumes:
+      - ./core-api/src:/app/core-api/src
+      - ./worker/src:/app/worker/src
+
+  worker-zeroswot:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        POETRY_GROUP: zeroswot
+    entrypoint: ["/app/worker/scripts/entrypoint-celery.sh"]
+    env_file:
+      - .envs/.s3
+      - .envs/.worker-zeroswot
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      worker-api:
+        condition: service_started
+    volumes:
+      - ./core-api/src:/app/core-api/src
+      - ./worker/src:/app/worker/src
+
+  worker-zeroshot:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        POETRY_GROUP: zeroshot
+    entrypoint: ["/app/worker/scripts/entrypoint-celery.sh"]
+    env_file:
+      - .envs/.s3
+      - .envs/.worker-zeroshot
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      worker-api:
+        condition: service_started
+    volumes:
+      - ./core-api/src:/app/core-api/src
+      - ./worker/src:/app/worker/src
+      - ../diploma/bachelor/graduate-project:/models/graduate-project:ro
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api/v1
+    depends_on:
+      - core-api
+      - worker-api
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - core-api
+      - worker-api
+      - frontend
+
+  flower:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    env_file:
+      - .envs/.broker
+      - .envs/.worker-api
+    entrypoint: []
+    command: ["celery", "-A", "config", "flower", "--port=5555"]
+    working_dir: /app/worker/src
+    ports:
+      - "5555:5555"
+    depends_on:
+      - rabbitmq
+      - worker-api
+    profiles:
+      - ops
+
+volumes:
+  pg_data:

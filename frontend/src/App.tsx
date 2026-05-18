@@ -1,143 +1,135 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { FormEvent, useEffect, useState } from "react";
+import { createUploadUrl, createVideo, fetchModels, fetchVideo } from "./api";
 
-type TaskStatus = "WAITING" | "PROCESSING" | "SUCCESS" | "ERROR";
+const SOURCE = "de";
+const TARGET = "uk";
+const POLL_MS = 3000;
 
-type UploadResponse = {
-  task_id: string;
-  status: TaskStatus;
-};
-
-type StatusResponse = {
-  task_id: string;
-  status: TaskStatus;
-  source_lang: string;
-  target_lang: string;
-  download_url: string | null;
-  error_message: string | null;
-};
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8888";
-
-export function App() {
+export default function App() {
   const [file, setFile] = useState<File | null>(null);
-  const [sourceLang, setSourceLang] = useState("eng");
-  const [targetLang, setTargetLang] = useState("rus");
-  const [task, setTask] = useState<StatusResponse | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [modelId, setModelId] = useState<string>("");
+  const [videoId, setVideoId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const downloadUrl = useMemo(() => {
-    if (!task?.download_url) {
-      return null;
-    }
-    return `${API_BASE_URL}${task.download_url}`;
-  }, [task]);
+  const modelsQuery = useQuery({
+    queryKey: ["models", SOURCE, TARGET],
+    queryFn: () => fetchModels(SOURCE, TARGET),
+  });
 
   useEffect(() => {
-    if (!task || task.status === "SUCCESS" || task.status === "ERROR") {
-      return;
+    if (modelsQuery.data?.recommended_model_id && !modelId) {
+      setModelId(modelsQuery.data.recommended_model_id);
     }
+  }, [modelsQuery.data, modelId]);
 
-    const interval = window.setInterval(async () => {
-      const nextTask = await fetchTask(task.task_id);
-      setTask(nextTask);
-    }, 3000);
+  const videoQuery = useQuery({
+    queryKey: ["video", videoId],
+    queryFn: () => fetchVideo(videoId!),
+    enabled: !!videoId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === "SUCCESS" || status === "ERROR") return false;
+      return POLL_MS;
+    },
+  });
 
-    return () => window.clearInterval(interval);
-  }, [task]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!file) {
-      setMessage("Выберите видеофайл");
-      return;
-    }
-
-    setIsUploading(true);
-    setMessage(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch(
-        `${API_BASE_URL}/videos/?source_lang=${sourceLang}&target_lang=${targetLang}`,
-        {
-          method: "POST",
-          body: formData,
-        },
+  const uploadMutation = useMutation({
+    mutationFn: async () => {
+      if (!file || !modelId) throw new Error("Выберите файл и модель");
+      setError(null);
+      const { upload_url, object_key } = await createUploadUrl(
+        file.name,
+        file.type || "video/mp4",
+        file.size
       );
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
+      const put = await fetch(upload_url, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "video/mp4" },
+      });
+      if (!put.ok) throw new Error(`S3 upload failed: ${put.status}`);
+      return createVideo(object_key, SOURCE, TARGET, modelId);
+    },
+    onSuccess: (job) => setVideoId(job.id),
+    onError: (err: Error) => setError(err.message),
+  });
 
-      const uploaded = (await response.json()) as UploadResponse;
-      setTask(await fetchTask(uploaded.task_id));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не удалось загрузить видео");
-    } finally {
-      setIsUploading(false);
-    }
-  }
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    uploadMutation.mutate();
+  };
+
+  const job = videoQuery.data;
 
   return (
-    <main className="page">
+    <div className="page">
+      <header>
+        <h1>Multilingual Videos</h1>
+        <p>Перевод видео {SOURCE} → {TARGET}</p>
+      </header>
+
       <section className="card">
-        <p className="eyebrow">SeamlessM4T video translation</p>
-        <h1>Перевод видео</h1>
-        <p className="description">
-          Загрузите видео, выберите языки SeamlessM4T и дождитесь готового файла с новой аудиодорожкой.
-        </p>
-
-        <form className="form" onSubmit={handleSubmit}>
-          <label>
-            Видео
-            <input accept="video/*" type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-          </label>
-
-          <div className="row">
-            <label>
-              Исходный язык
-              <input value={sourceLang} onChange={(event) => setSourceLang(event.target.value)} />
-            </label>
-            <label>
-              Язык перевода
-              <input value={targetLang} onChange={(event) => setTargetLang(event.target.value)} />
-            </label>
-          </div>
-
-          <button disabled={isUploading} type="submit">
-            {isUploading ? "Загрузка..." : "Загрузить и перевести"}
-          </button>
-        </form>
-
-        {message && <p className="error">{message}</p>}
-        {task && (
-          <section className="status">
-            <h2>Задача {task.task_id}</h2>
-            <p>
-              Статус: <strong>{task.status}</strong>
-            </p>
-            <p>
-              Направление: {task.source_lang} {"->"} {task.target_lang}
-            </p>
-            {task.error_message && <p className="error">{task.error_message}</p>}
-            {downloadUrl && (
-              <a className="download" href={downloadUrl}>
-                Скачать результат
-              </a>
-            )}
-          </section>
+        <h2>Модель</h2>
+        {modelsQuery.isLoading && <p>Загрузка моделей…</p>}
+        {modelsQuery.data && (
+          <ul className="models">
+            {modelsQuery.data.items.map((m) => (
+              <li key={m.id}>
+                <label>
+                  <input
+                    type="radio"
+                    name="model"
+                    value={m.id}
+                    checked={modelId === m.id}
+                    onChange={() => setModelId(m.id)}
+                  />
+                  <span className="title">{m.display_name}</span>
+                  {m.is_recommended && <span className="badge">рекомендуется</span>}
+                  {m.metrics && (
+                    <span className="metrics">
+                      BLEU {m.metrics.bleu?.toFixed(1) ?? "—"} · NIST{" "}
+                      {m.metrics.nist?.toFixed(2) ?? "—"}
+                    </span>
+                  )}
+                </label>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
-    </main>
-  );
-}
 
-async function fetchTask(taskId: string): Promise<StatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/videos/${taskId}`);
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
+      <section className="card">
+        <h2>Загрузка</h2>
+        <form onSubmit={onSubmit}>
+          <input
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime,video/x-matroska"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          <button type="submit" disabled={!file || uploadMutation.isPending}>
+            {uploadMutation.isPending ? "Загрузка…" : "Перевести"}
+          </button>
+        </form>
+        {error && <p className="error">{error}</p>}
+      </section>
+
+      {job && (
+        <section className="card">
+          <h2>Статус</h2>
+          <p>
+            <strong>{job.status}</strong> — {job.progress}%
+          </p>
+          {job.status === "ERROR" && job.error_message && (
+            <p className="error">{job.error_message}</p>
+          )}
+          {job.status === "SUCCESS" && job.download_url && (
+            <a href={job.download_url} className="download">
+              Скачать результат
+            </a>
+          )}
+        </section>
+      )}
+    </div>
+  );
 }

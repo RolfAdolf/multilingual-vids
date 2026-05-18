@@ -1,0 +1,20 @@
+# Celery consumer: очередь zeroshot (STT + MT + TTS)
+DJANGO_SECRET_KEY=change-me-in-production
+DEBUG=true
+CORE_SRC_PATH=/app/core-api/src
+
+DATABASE_URL=postgres://mv:mv@postgres:5432/multilingual_videos
+CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+CELERY_RESULT_BACKEND=django-db
+REDIS_URL=redis://redis:6379/0
+
+CELERY_QUEUE=zeroshot
+CELERY_LOGLEVEL=info
+CELERY_CONCURRENCY=1
+
+ZEROSHOT_GRADUATE_PROJECT_DIR=/models/graduate-project
+ZEROSHOT_MT_TRANSLATOR_PATH=/models/graduate-project/trained_models/augmented/translator_8
+ZEROSHOT_WHISPER_MODEL=base
+ZEROSHOT_WHISPER_DEVICE=cpu
+ZEROSHOT_WHISPER_COMPUTE_TYPE=int8
+ZEROSHOT_TTS_VOICE=uk-UA-OstapNeural

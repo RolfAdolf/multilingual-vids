@@ -1,8 +1,0 @@
-APP_HOST=0.0.0.0
-APP_PORT=8888
-STORAGE_DIR=/storage
-CORS_ORIGINS=http://localhost:5173
-TRANSLATOR_PROVIDER=seamless_m4t
-SEAMLESS_MODEL=facebook/hf-seamless-m4t-medium
-TRANSLATOR_DEVICE=auto
-DEBUG=1

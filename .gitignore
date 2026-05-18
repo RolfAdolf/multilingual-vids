@@ -1,5 +1,10 @@
 venv
-.envs
+.venv
+.env
+.envs/
+!.envs_examples/
+frontend/.env
+frontend/.env.local
 storage
 node_modules
 dist

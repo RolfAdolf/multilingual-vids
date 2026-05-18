@@ -1,0 +1,13 @@
+# Celery consumer: очередь seamless (SeamlessM4T)
+DJANGO_SECRET_KEY=change-me-in-production
+DEBUG=true
+CORE_SRC_PATH=/app/core-api/src
+
+DATABASE_URL=postgres://mv:mv@postgres:5432/multilingual_videos
+CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+CELERY_RESULT_BACKEND=django-db
+REDIS_URL=redis://redis:6379/0
+
+CELERY_QUEUE=seamless
+CELERY_LOGLEVEL=info
+CELERY_CONCURRENCY=1

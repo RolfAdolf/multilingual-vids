@@ -1,22 +1,59 @@
 # Multilingual Videos
 
-Платформа перевода видео на базе SeamlessM4T.
+**core-api** (каталог) + **worker-api** (видео HTTP) + **3 Celery-воркера** (по одной ML-модели).
 
-## Запуск
+## Структура
+
+```
+multilingual-vids/
+  core-api/
+  worker/              # код API + flow/*; образы различаются POETRY_GROUP
+  frontend/
+  .envs_examples/      # шаблоны env по сервисам
+  docker-compose.yaml
+```
+
+## Env-файлы
 
 ```bash
 mkdir -p .envs
-cp .envs_examples/.app .envs/.app
-cp .envs_examples/.db .envs/.db
+cp .envs_examples/.db.example .envs/.db
+cp .envs_examples/.broker.example .envs/.broker
+cp .envs_examples/.s3.example .envs/.s3
+cp .envs_examples/.core-api.example .envs/.core-api
+cp .envs_examples/.worker-api.example .envs/.worker-api
+cp .envs_examples/.worker-seamless.example .envs/.worker-seamless
+cp .envs_examples/.worker-zeroswot.example .envs/.worker-zeroswot
+cp .envs_examples/.worker-zeroshot.example .envs/.worker-zeroshot
+cp .envs_examples/.frontend.example frontend/.env
+# YANDEX_S3_* → .envs/.s3
+```
+
+## Docker Compose
+
+| Сервис | Очередь | Poetry group | Роль |
+|--------|---------|--------------|------|
+| `worker-api` | — | (базовые deps) | gunicorn, `/api/v1/videos` |
+| `worker-seamless` | `seamless` | `seamless` | Celery consumer |
+| `worker-zeroswot` | `zeroswot` | `zeroswot` | Celery consumer |
+| `worker-zeroshot` | `zeroshot` | `zeroshot` | Celery consumer |
+
+```bash
 docker compose up --build
 ```
 
-Фронтенд будет доступен на `http://localhost:5173`, Swagger API на `http://localhost:8888/docs`.
+Flower: `docker compose --profile ops up flower`
 
-## API
+## Локально (Python 3.10.6)
 
-- `POST /videos/?source_lang=eng&target_lang=rus` - загрузить видео и создать задачу.
-- `GET /videos/{task_id}` - получить статус задачи.
-- `GET /videos/{task_id}/download` - скачать результат, если задача завершилась успешно.
+```bash
+cd worker && python3.10 -m venv .venv && poetry env use .venv/bin/python
+poetry install --with seamless   # или zeroswot / zeroshot
 
-Языки задаются кодами SeamlessM4T, например `eng`, `deu`, `rus`.
+cd src
+export CORE_SRC_PATH=../../core-api/src
+export MV_WORKER_ENV=worker-seamless   # или worker-api, worker-zeroshot, …
+poetry run celery -A config worker -Q seamless
+```
+
+Обучение MT: `../diploma/scripts/train_zeroshot_mt.py`.
