@@ -1,0 +1,13 @@
+# GPU overlay for production (requires NVIDIA Container Toolkit on host).
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d --build
+name: multilingual-vids
+
+services:
+  worker-seamless:
+    gpus: all
+
+  worker-zeroswot:
+    gpus: all
+
+  worker-zeroshot:
+    gpus: all

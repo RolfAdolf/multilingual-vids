@@ -14,6 +14,7 @@ class UploadUrlResponseSerializer(serializers.Serializer):
     object_key = serializers.CharField()
     expires_in = serializers.IntegerField()
     method = serializers.CharField(default="PUT")
+    headers = serializers.DictField(child=serializers.CharField())
 
 
 class VideoCreateSerializer(serializers.Serializer):
@@ -21,6 +22,7 @@ class VideoCreateSerializer(serializers.Serializer):
     source = serializers.CharField(max_length=8)
     target = serializers.CharField(max_length=8)
     model_id = serializers.UUIDField(required=False)
+    original_filename = serializers.CharField(max_length=512, required=False)
 
 
 class VideoResponseSerializer(serializers.ModelSerializer):
@@ -28,6 +30,7 @@ class VideoResponseSerializer(serializers.ModelSerializer):
     target = serializers.CharField(source="target_language_code", read_only=True)
     model_id = serializers.UUIDField(source="model.id", read_only=True)
     model_slug = serializers.CharField(source="model.slug", read_only=True)
+    model_display_name = serializers.CharField(source="model.display_name", read_only=True)
     object_key = serializers.CharField(source="input_object_key", read_only=True)
     download_url = serializers.SerializerMethodField()
 
@@ -35,17 +38,22 @@ class VideoResponseSerializer(serializers.ModelSerializer):
         model = Video
         fields = (
             "id",
+            "original_filename",
             "status",
             "progress",
             "source",
             "target",
             "model_id",
             "model_slug",
+            "model_display_name",
             "object_key",
+            "file_size_bytes",
             "download_url",
             "error_message",
             "created_at",
             "updated_at",
+            "started_at",
+            "finished_at",
         )
 
     def get_download_url(self, obj: Video) -> str | None:

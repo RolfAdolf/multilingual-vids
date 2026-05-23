@@ -10,6 +10,7 @@ ROOT_DIR = BASE_DIR.parent.parent
 read_env_files(
     ROOT_DIR,
     ".envs/.db",
+    ".envs/.s3",
     ".envs/.core-api",
     ".env",
 )
@@ -34,8 +35,10 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "drf_spectacular",
+    "django_celery_results",
     "translation_models",
     "languages",
+    "video",
 ]
 
 MIDDLEWARE = [
@@ -103,14 +106,61 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
 }
 
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="amqp://guest:guest@localhost:5672//")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="django-db")
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 60 * 60 * 2
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+
+YANDEX_S3_ACCESS_KEY_ID = env("YANDEX_S3_ACCESS_KEY_ID", default="")
+YANDEX_S3_SECRET_ACCESS_KEY = env("YANDEX_S3_SECRET_ACCESS_KEY", default="")
+YANDEX_S3_ENDPOINT = env("YANDEX_S3_ENDPOINT", default="https://storage.yandexcloud.net")
+YANDEX_S3_REGION = env("YANDEX_S3_REGION", default="ru-central1")
+YANDEX_S3_BUCKET_UPLOADS = env("YANDEX_S3_BUCKET_UPLOADS", default="multilingual-vids")
+YANDEX_S3_BUCKET_RESULTS = env("YANDEX_S3_BUCKET_RESULTS", default="multilingual-vids")
+YANDEX_S3_BUCKET_TEMP = env("YANDEX_S3_BUCKET_TEMP", default="multilingual-vids")
+
+S3_PRESIGNED_TTL_SECONDS = env.int("S3_PRESIGNED_TTL_SECONDS", default=900)
+MAX_UPLOAD_BYTES = env.int("MAX_UPLOAD_BYTES", default=500 * 1024 * 1024)
+ALLOWED_VIDEO_CONTENT_TYPES = (
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+    "video/x-matroska",
+)
+ALLOW_MULTIPART_UPLOAD = env.bool("ALLOW_MULTIPART_UPLOAD", default=False)
+
+S3_CORS_ALLOWED_ORIGINS = env.list(
+    "S3_CORS_ALLOWED_ORIGINS",
+    default=[
+        "http://localhost",
+        "http://localhost:80",
+        "http://127.0.0.1",
+        "http://127.0.0.1:80",
+    ],
+)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
+        "json_message": {
+            "format": "%(message)s",
+        },
         "verbose": {"format": "%(levelname)s %(asctime)s %(name)s %(message)s"},
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json_message",
+        },
+    },
+    "loggers": {
+        "video": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "translation_models": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.request": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
     "root": {"handlers": ["console"], "level": "INFO"},
 }

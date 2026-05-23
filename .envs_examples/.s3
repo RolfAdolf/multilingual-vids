@@ -9,3 +9,6 @@ YANDEX_S3_BUCKET_TEMP=multilingual-vids
 S3_PRESIGNED_TTL_SECONDS=900
 MAX_UPLOAD_BYTES=524288000
 ALLOW_MULTIPART_UPLOAD=false
+
+# Origins allowed to PUT/GET via presigned URLs from the browser
+S3_CORS_ALLOWED_ORIGINS=http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80

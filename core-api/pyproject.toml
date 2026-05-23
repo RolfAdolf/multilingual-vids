@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "core-api"
 version = "0.1.0"
-description = "Multilingual Videos — core API (languages, models, admin)"
+description = "Multilingual Videos — HTTP API (languages, models, videos, admin)"
 authors = ["Nadir Devrishev"]
 package-mode = false
 
@@ -14,6 +14,10 @@ drf-spectacular = "^0.27"
 django-environ = "^0.11"
 psycopg = { version = "^3.2", extras = ["binary"] }
 gunicorn = "^23.0"
+boto3 = "^1.43.10"
+celery = { version = "^5.4", extras = ["redis"] }
+django-celery-results = "^2.5"
+redis = "^5.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6"

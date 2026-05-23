@@ -1,28 +1,63 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
+export type LanguageItem = {
+  code: string;
+  name_en: string;
+  name_ru: string;
+};
+
+export type ModelMetrics = {
+  bleu: number | null;
+  dataset_name: string | null;
+  measured_at: string | null;
+};
+
 export type ModelItem = {
   id: string;
   slug: string;
   display_name: string;
+  description: string;
+  provider: string;
+  pipeline_summary: string;
+  tags: string[];
   is_recommended: boolean;
-  metrics: {
+  metrics: ModelMetrics | null;
+};
+
+export type ModelCatalogItem = ModelItem & {
+  worker_queue: string;
+  language_pairs: {
+    source: string;
+    target: string;
+    source_name_en: string;
+    target_name_en: string;
     bleu: number | null;
-    nist: number | null;
-    dataset_name: string | null;
-    measured_at: string | null;
-  } | null;
+  }[];
+};
+
+export type CoverageCell = {
+  supported: boolean;
+  bleu: number | null;
+  quality: "high" | "medium" | "low" | "none";
 };
 
 export type VideoJob = {
   id: string;
+  original_filename: string;
   status: string;
   progress: number;
   source: string;
   target: string;
   model_id: string;
   model_slug: string;
+  model_display_name: string;
+  file_size_bytes: number | null;
   download_url: string | null;
   error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -34,11 +69,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export function fetchLanguages() {
+  return request<{ items: LanguageItem[] }>("/languages");
+}
+
 export function fetchModels(source: string, target: string) {
   return request<{
-    recommended_model_id: string;
+    source: string;
+    target: string;
+    recommended_model_id: string | null;
     items: ModelItem[];
-  }>(`/models?source=${source}&target=${target}`);
+  }>(`/models?source=${encodeURIComponent(source)}&target=${encodeURIComponent(target)}`);
+}
+
+export function fetchModelsCatalog() {
+  return request<{ items: ModelCatalogItem[] }>("/models/catalog");
+}
+
+export function fetchModelsCoverage() {
+  return request<{
+    languages: { code: string; name_en: string; name_ru: string }[];
+    items: {
+      id: string;
+      slug: string;
+      display_name: string;
+      coverage: Record<string, CoverageCell>;
+    }[];
+  }>("/models/coverage");
+}
+
+export function fetchVideos(status?: string) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<{ items: VideoJob[] }>(`/videos${q}`);
 }
 
 export function createUploadUrl(filename: string, contentType: string, sizeBytes: number) {
@@ -47,6 +109,7 @@ export function createUploadUrl(filename: string, contentType: string, sizeBytes
     object_key: string;
     expires_in: number;
     method: string;
+    headers: Record<string, string>;
   }>("/videos/upload-url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -58,7 +121,13 @@ export function createUploadUrl(filename: string, contentType: string, sizeBytes
   });
 }
 
-export function createVideo(objectKey: string, source: string, target: string, modelId: string) {
+export function createVideo(
+  objectKey: string,
+  source: string,
+  target: string,
+  modelId: string,
+  originalFilename?: string
+) {
   return request<VideoJob>("/videos", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -67,6 +136,7 @@ export function createVideo(objectKey: string, source: string, target: string, m
       source,
       target,
       model_id: modelId,
+      ...(originalFilename ? { original_filename: originalFilename } : {}),
     }),
   });
 }

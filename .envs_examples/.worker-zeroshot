@@ -1,20 +1,17 @@
-# Celery consumer: очередь zeroshot (STT + MT + TTS)
-DJANGO_SECRET_KEY=change-me-in-production
-DEBUG=true
-CORE_SRC_PATH=/app/core-api/src
-
-DATABASE_URL=postgres://mv:mv@postgres:5432/multilingual_videos
-CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
-CELERY_RESULT_BACKEND=django-db
-REDIS_URL=redis://redis:6379/0
-
+# Очередь zeroshot (STT + MT + TTS)
 CELERY_QUEUE=zeroshot
-CELERY_LOGLEVEL=info
-CELERY_CONCURRENCY=1
 
+# MT SavedModel в S3 (production). При заданном префиксе воркер качает модель при старте.
+ZEROSHOT_MT_S3_PREFIX=models/zeroshot/trained_8
+# Пусто = тот же бакет, что YANDEX_S3_BUCKET_UPLOADS
+ZEROSHOT_MT_S3_BUCKET=
+
+# Локальная разработка без S3: оставь ZEROSHOT_MT_S3_PREFIX пустым и укажи путь к translator_8
+# ZEROSHOT_MT_S3_PREFIX=
 ZEROSHOT_GRADUATE_PROJECT_DIR=/models/graduate-project
 ZEROSHOT_MT_TRANSLATOR_PATH=/models/graduate-project/trained_models/augmented/translator_8
-ZEROSHOT_WHISPER_MODEL=base
+
+ZEROSHOT_WHISPER_MODEL=large-v3
 ZEROSHOT_WHISPER_DEVICE=cpu
 ZEROSHOT_WHISPER_COMPUTE_TYPE=int8
 ZEROSHOT_TTS_VOICE=uk-UA-OstapNeural

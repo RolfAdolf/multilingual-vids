@@ -6,9 +6,13 @@ from pathlib import Path
 
 from django.conf import settings
 
-from flow.zeroshot.mt_savedmodel import load_saved_model
+from flow.zeroshot.mt_assets import _s3_prefix
+from flow.zeroshot.mt_savedmodel import ZeroshotMT, load_saved_model
+from languages.lang_mapping import zeroshot_mt_tag
 
 logger = logging.getLogger(__name__)
+
+_mt_model: ZeroshotMT | None = None
 
 
 def _graduate_project_dir() -> Path:
@@ -31,7 +35,7 @@ def _graduate_project_dir() -> Path:
     )
 
 
-def _translator_path(project_dir: Path) -> Path:
+def _local_translator_path() -> Path:
     explicit = getattr(settings, "ZEROSHOT_MT_TRANSLATOR_PATH", "") or os.environ.get(
         "ZEROSHOT_MT_TRANSLATOR_PATH", ""
     )
@@ -48,18 +52,40 @@ def _translator_path(project_dir: Path) -> Path:
         getattr(settings, "ZEROSHOT_MT_EPOCH", "")
         or os.environ.get("ZEROSHOT_MT_EPOCH", "8")
     )
-    path = (project_dir / export_subdir / f"translator_{epoch}").resolve()
+    path = (_graduate_project_dir() / export_subdir / f"translator_{epoch}").resolve()
     if not path.is_dir():
         raise FileNotFoundError(f"Translator SavedModel not found: {path}")
     return path
 
 
-def get_mt_model():
-    project_dir = _graduate_project_dir()
-    translator_path = _translator_path(project_dir)
-    logger.info("Loading zero-shot MT SavedModel from %s", translator_path)
-    return load_saved_model(str(translator_path))
+def warm_mt_model(model_dir: Path) -> ZeroshotMT:
+    """Load MT SavedModel into process memory (used after S3 download)."""
+    global _mt_model
+    path = model_dir.resolve()
+    logger.info("Loading zero-shot MT SavedModel from %s", path)
+    _mt_model = load_saved_model(str(path))
+    return _mt_model
+
+
+def get_mt_model() -> ZeroshotMT:
+    global _mt_model
+    if _mt_model is not None:
+        return _mt_model
+
+    if _s3_prefix():
+        raise RuntimeError(
+            "Zeroshot MT is not loaded. Ensure worker bootstrap ran "
+            "(ZEROSHOT_MT_S3_PREFIX is set)."
+        )
+
+    return warm_mt_model(_local_translator_path())
+
+
+def translate(text: str, target_api: str) -> str:
+    tag = zeroshot_mt_tag(target_api)
+    logger.info("MT target_api=%s tag=<2%s>", target_api, tag)
+    return get_mt_model().translate(text, target_lang=tag)
 
 
 def translate_de_to_uk(text: str) -> str:
-    return get_mt_model().translate(text, target_lang="uk")
+    return translate(text, target_api="uk")

@@ -2,7 +2,8 @@
 set -e
 
 cd /app/worker/src
-python manage.py migrate --noinput
+
+echo "{\"event\":\"worker.process.start\",\"layer\":\"worker\",\"queue\":\"${CELERY_QUEUE}\"}"
 
 exec celery -A config worker \
   --loglevel="${CELERY_LOGLEVEL:-info}" \

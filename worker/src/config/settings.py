@@ -25,12 +25,13 @@ CORE_SRC = _core_src()
 if str(CORE_SRC) not in sys.path:
     sys.path.insert(0, str(CORE_SRC))
 
-_worker_env = os.environ.get("MV_WORKER_ENV", ".worker-api")
+_worker_env = os.environ.get("MV_WORKER_ENV", ".worker-seamless")
 if not _worker_env.startswith(".envs/"):
     _worker_env = f".envs/{_worker_env.removeprefix('.')}"
 
 read_env_files(
     ROOT_DIR,
+    ".envs/.worker",
     ".envs/.db",
     ".envs/.broker",
     ".envs/.s3",
@@ -38,43 +39,21 @@ read_env_files(
     ".env",
 )
 
-env = environ.Env(
-    DEBUG=(bool, True),
-    ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1", "worker"]),
-    CORS_ALLOWED_ORIGINS=(list, ["http://localhost", "http://localhost:5173"]),
-)
+env = environ.Env(DEBUG=(bool, True))
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-insecure-change-me")
-DEBUG = env("DEBUG")
-ALLOWED_HOSTS = env("ALLOWED_HOSTS")
+DEBUG = env("DEBUG", default=True)
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
-    "django.contrib.auth",
     "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
-    "corsheaders",
-    "rest_framework",
-    "drf_spectacular",
+    "django.contrib.auth",
     "django_celery_results",
-    "translation_models",
     "languages",
+    "translation_models",
     "video",
 ]
 
-MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "config.middleware.RequestIdMiddleware",
-]
+MIDDLEWARE = []
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -86,31 +65,11 @@ DATABASES = {
     )
 }
 
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-]
-
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
-
-STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
-CORS_ALLOW_CREDENTIALS = True
-
-REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-}
-
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Multilingual Videos — Worker API",
-    "VERSION": "1.0.0",
-}
 
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="amqp://guest:guest@localhost:5672//")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="django-db")
@@ -119,8 +78,7 @@ CELERY_TASK_TIME_LIMIT = 60 * 60 * 2
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-
-REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_IMPORTS = ("tasks.video",)
 
 YANDEX_S3_ACCESS_KEY_ID = env("YANDEX_S3_ACCESS_KEY_ID", default="")
 YANDEX_S3_SECRET_ACCESS_KEY = env("YANDEX_S3_SECRET_ACCESS_KEY", default="")
@@ -130,16 +88,8 @@ YANDEX_S3_BUCKET_UPLOADS = env("YANDEX_S3_BUCKET_UPLOADS", default="multilingual
 YANDEX_S3_BUCKET_RESULTS = env("YANDEX_S3_BUCKET_RESULTS", default="multilingual-vids")
 YANDEX_S3_BUCKET_TEMP = env("YANDEX_S3_BUCKET_TEMP", default="multilingual-vids")
 
-S3_PRESIGNED_TTL_SECONDS = env.int("S3_PRESIGNED_TTL_SECONDS", default=900)
-MAX_UPLOAD_BYTES = env.int("MAX_UPLOAD_BYTES", default=500 * 1024 * 1024)
-ALLOWED_VIDEO_CONTENT_TYPES = (
-    "video/mp4",
-    "video/webm",
-    "video/quicktime",
-    "video/x-matroska",
-)
-ALLOW_MULTIPART_UPLOAD = env.bool("ALLOW_MULTIPART_UPLOAD", default=False)
-
+ZEROSHOT_MT_S3_PREFIX = env("ZEROSHOT_MT_S3_PREFIX", default="")
+ZEROSHOT_MT_S3_BUCKET = env("ZEROSHOT_MT_S3_BUCKET", default="")
 ZEROSHOT_GRADUATE_PROJECT_DIR = env("ZEROSHOT_GRADUATE_PROJECT_DIR", default="")
 ZEROSHOT_MT_TRANSLATOR_PATH = env("ZEROSHOT_MT_TRANSLATOR_PATH", default="")
 ZEROSHOT_MT_EXPORT_DIR = env("ZEROSHOT_MT_EXPORT_DIR", default="trained_models/augmented")
@@ -149,14 +99,26 @@ ZEROSHOT_WHISPER_DEVICE = env("ZEROSHOT_WHISPER_DEVICE", default="cpu")
 ZEROSHOT_WHISPER_COMPUTE_TYPE = env("ZEROSHOT_WHISPER_COMPUTE_TYPE", default="int8")
 ZEROSHOT_TTS_VOICE = env("ZEROSHOT_TTS_VOICE", default="uk-UA-OstapNeural")
 
+SEAMLESS_HF_MODEL_ID = env(
+    "SEAMLESS_HF_MODEL_ID",
+    default="facebook/hf-seamless-m4t-medium",
+)
+SEAMLESS_DEVICE = env("SEAMLESS_DEVICE", default="auto")
+SEAMLESS_MAX_NEW_TOKENS = env.int("SEAMLESS_MAX_NEW_TOKENS", default=0)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "verbose": {"format": "%(levelname)s %(asctime)s %(name)s %(message)s"},
+        "json_message": {"format": "%(message)s"},
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+        "console": {"class": "logging.StreamHandler", "formatter": "json_message"},
+    },
+    "loggers": {
+        "config.celery": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "tasks": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "flow": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },
     "root": {"handlers": ["console"], "level": "INFO"},
 }

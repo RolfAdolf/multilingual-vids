@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 from pathlib import Path
 
 from django.conf import settings
+
+from languages.lang_mapping import zeroshot_whisper_code
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,18 @@ def _whisper_model():
     return WhisperModel(model_size, device=device, compute_type=compute_type)
 
 
-def transcribe_german(wav_path: Path) -> str:
+def transcribe(wav_path: Path, source_api: str) -> str:
+    language = zeroshot_whisper_code(source_api)
     model = _whisper_model()
     segments, _info = model.transcribe(
         str(wav_path),
-        language="de",
+        language=language,
         beam_size=5,
         vad_filter=True,
     )
     parts = [segment.text.strip() for segment in segments if segment.text.strip()]
     return " ".join(parts)
+
+
+def transcribe_german(wav_path: Path) -> str:
+    return transcribe(wav_path, source_api="de")

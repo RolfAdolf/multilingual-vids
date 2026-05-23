@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from pathlib import Path
 
 
@@ -29,6 +28,5 @@ class ZeroshotMT:
         return self._model(tf.constant(sentence)).numpy().decode("utf-8")
 
 
-@lru_cache(maxsize=1)
 def load_saved_model(path: str) -> ZeroshotMT:
     return ZeroshotMT(Path(path))

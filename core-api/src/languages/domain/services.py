@@ -1,31 +1,32 @@
 from __future__ import annotations
 
 from languages.domain.types import LanguageItem
-from translation_models.domain.repository import ModelLanguageRepository
-
-DEFAULT_LANGUAGE_NAMES: dict[str, tuple[str, str]] = {
-    "de": ("German", "Немецкий"),
-    "en": ("English", "Английский"),
-    "ru": ("Russian", "Русский"),
-    "uk": ("Ukrainian", "Украинский"),
-}
+from languages.lang_mapping import list_zeroswot_catalog_extras
+from languages.models import Language
 
 
 class LanguageCatalogService:
-    def __init__(self, repository: ModelLanguageRepository | None = None):
-        self._repository = repository or ModelLanguageRepository()
-
     def list_available(self) -> list[LanguageItem]:
-        codes: set[str] = set()
-        for row in self._repository.active_language_rows().values(
-            "source_language_code",
-            "target_language_code",
-        ):
-            codes.add(row["source_language_code"])
-            codes.add(row["target_language_code"])
-
         items: list[LanguageItem] = []
-        for code in sorted(codes):
-            name_en, name_ru = DEFAULT_LANGUAGE_NAMES.get(code, ("", ""))
-            items.append(LanguageItem(code=code, name_en=name_en, name_ru=name_ru))
-        return items
+        seen: set[str] = set()
+        for lang in Language.objects.all().order_by("name_en"):
+            if not (lang.supports_source_speech or lang.supports_source_text):
+                continue
+            if lang.api_code in seen:
+                continue
+            seen.add(lang.api_code)
+            items.append(
+                LanguageItem(
+                    code=lang.api_code,
+                    name_en=lang.name_en,
+                    name_ru=lang.name_ru or lang.name_en,
+                )
+            )
+        for api_code, name_en in list_zeroswot_catalog_extras():
+            if api_code in seen:
+                continue
+            seen.add(api_code)
+            items.append(
+                LanguageItem(code=api_code, name_en=name_en, name_ru=name_en)
+            )
+        return sorted(items, key=lambda item: item.name_en)

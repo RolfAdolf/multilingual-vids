@@ -1,23 +1,19 @@
 [tool.poetry]
 name = "worker"
 version = "0.1.0"
-description = "Multilingual Videos — video API, Celery, ML pipelines"
+description = "Multilingual Videos — Celery workers and ML pipelines"
 authors = ["Nadir Devrishev"]
 package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.12"
 django = "^5.1"
-djangorestframework = "^3.15"
-django-cors-headers = "^4.4"
-drf-spectacular = "^0.27"
 django-environ = "^0.11"
 psycopg = { version = "^3.2", extras = ["binary"] }
 boto3 = "^1.35"
 celery = { version = "^5.4", extras = ["redis"] }
 django-celery-results = "^2.5"
 redis = "^5.1"
-gunicorn = "^23.0"
 
 [tool.poetry.group.seamless]
 optional = true
@@ -27,6 +23,11 @@ torch = "^2.4"
 transformers = "^4.44"
 torchaudio = "^2.4"
 soundfile = "^0.12"
+protobuf = "^5.27"
+tiktoken = "^0.8"
+sentencepiece = "^0.2"
+accelerate = "^0.34"
+safetensors = "^0.4"
 
 [tool.poetry.group.zeroswot]
 optional = true
@@ -42,6 +43,8 @@ optional = true
 
 [tool.poetry.group.zeroshot.dependencies]
 faster-whisper = "^1.0"
+# onnxruntime 1.24+ has no cp310 wheels; keep <1.24 for python:3.10-slim images
+onnxruntime = ">=1.14,<1.24"
 edge-tts = "^6.1"
 tensorflow = "^2.16"
 tensorflow-text = "^2.16"
@@ -49,6 +52,7 @@ numpy = "^1.26"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6"
+watchdog = "^4.0"
 
 [build-system]
 requires = ["poetry-core"]

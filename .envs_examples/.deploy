@@ -1,0 +1,6 @@
+# Production deploy (GPU server). Copy to .envs/.deploy and source before compose:
+#   set -a && source .envs/.deploy && set +a
+#   docker compose up -d --build
+
+# Public HTTP port for nginx
+HTTP_PORT=80

@@ -1,4 +1,4 @@
-"""Re-export S3 helpers from worker API (shared contract §13)."""
+"""Re-export S3 helpers from core-api (shared contract §13)."""
 
 from storage.s3 import (  # noqa: F401
     head_object,

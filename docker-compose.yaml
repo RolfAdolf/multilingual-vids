@@ -1,12 +1,47 @@
+# Base stack. Production GPU: add -f docker-compose.gpu.yaml
+# Local dev: docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up
+name: multilingual-vids
+
+x-logging: &json_logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-gpu-worker-env: &gpu_worker_env
+  CELERY_CONCURRENCY: "1"
+  NVIDIA_VISIBLE_DEVICES: all
+  NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+x-gpu-worker-volumes: &gpu_worker_volumes
+  - hf_cache:/root/.cache/huggingface
+  - torch_cache:/root/.cache/torch
+
+x-ml-worker: &ml_worker
+  restart: unless-stopped
+  env_file:
+    - .envs/.s3
+    - .envs/.worker
+  environment:
+    <<: *gpu_worker_env
+  volumes: *gpu_worker_volumes
+  depends_on:
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+    core-api:
+      condition: service_started
+  logging: *json_logging
+
 services:
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: mv
       POSTGRES_PASSWORD: mv
       POSTGRES_DB: multilingual_videos
-    ports:
-      - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -14,159 +49,153 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    logging: *json_logging
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *json_logging
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    logging: *json_logging
 
   core-api:
     build:
       context: .
       dockerfile: core-api/Dockerfile
+    restart: unless-stopped
     env_file:
       - .envs/.db
+      - .envs/.s3
       - .envs/.core-api
+    environment:
+      DEBUG: "false"
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     command: >
       sh -c "python manage.py migrate --noinput &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+      gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2
+      --timeout 120 --access-logfile - --error-logfile -"
     working_dir: /app/src
-    volumes:
-      - ./core-api/src:/app/src
-
-  worker-api:
-    build:
-      context: .
-      dockerfile: worker/Dockerfile
-    env_file:
-      - .envs/.s3
-      - .envs/.worker-api
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      core-api:
-        condition: service_started
-    volumes:
-      - ./core-api/src:/app/core-api/src
-      - ./worker/src:/app/worker/src
+    logging: *json_logging
 
   worker-seamless:
+    <<: *ml_worker
     build:
       context: .
-      dockerfile: worker/Dockerfile
+      dockerfile: worker/Dockerfile.gpu
       args:
         POETRY_GROUP: seamless
-    entrypoint: ["/app/worker/scripts/entrypoint-celery.sh"]
     env_file:
       - .envs/.s3
+      - .envs/.worker
       - .envs/.worker-seamless
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      worker-api:
-        condition: service_started
-    volumes:
-      - ./core-api/src:/app/core-api/src
-      - ./worker/src:/app/worker/src
+    environment:
+      <<: *gpu_worker_env
+      CELERY_QUEUE: seamless
+      SEAMLESS_DEVICE: cuda
 
   worker-zeroswot:
+    <<: *ml_worker
     build:
       context: .
-      dockerfile: worker/Dockerfile
+      dockerfile: worker/Dockerfile.gpu
       args:
         POETRY_GROUP: zeroswot
-    entrypoint: ["/app/worker/scripts/entrypoint-celery.sh"]
     env_file:
       - .envs/.s3
+      - .envs/.worker
       - .envs/.worker-zeroswot
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      worker-api:
-        condition: service_started
-    volumes:
-      - ./core-api/src:/app/core-api/src
-      - ./worker/src:/app/worker/src
+    environment:
+      <<: *gpu_worker_env
+      CELERY_QUEUE: zeroswot
 
   worker-zeroshot:
+    <<: *ml_worker
     build:
       context: .
-      dockerfile: worker/Dockerfile
+      dockerfile: worker/Dockerfile.gpu
       args:
         POETRY_GROUP: zeroshot
-    entrypoint: ["/app/worker/scripts/entrypoint-celery.sh"]
     env_file:
       - .envs/.s3
+      - .envs/.worker
       - .envs/.worker-zeroshot
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      worker-api:
-        condition: service_started
+    environment:
+      <<: *gpu_worker_env
+      CELERY_QUEUE: zeroshot
+      ZEROSHOT_MT_S3_PREFIX: models/zeroshot/trained_8
+      ZEROSHOT_WHISPER_DEVICE: cuda
+      ZEROSHOT_WHISPER_COMPUTE_TYPE: float16
+      ZEROSHOT_WHISPER_MODEL: large-v3
+      TF_FORCE_GPU_ALLOW_GROWTH: "true"
     volumes:
-      - ./core-api/src:/app/core-api/src
-      - ./worker/src:/app/worker/src
-      - ../diploma/bachelor/graduate-project:/models/graduate-project:ro
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
 
   frontend:
     build:
       context: ./frontend
       args:
         VITE_API_BASE_URL: /api/v1
+    restart: unless-stopped
     depends_on:
       - core-api
-      - worker-api
+    logging: *json_logging
 
   nginx:
     image: nginx:1.27-alpine
+    restart: unless-stopped
     ports:
-      - "80:80"
+      - "${HTTP_PORT:-80}:80"
     volumes:
-      - ./infra/nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infra/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - core-api
-      - worker-api
       - frontend
+    logging: *json_logging
 
   flower:
     build:
       context: .
       dockerfile: worker/Dockerfile
+    profiles:
+      - ops
+    restart: unless-stopped
     env_file:
       - .envs/.broker
-      - .envs/.worker-api
+      - .envs/.db
+    environment:
+      CORE_SRC_PATH: /app/core-api/src
+      DJANGO_SETTINGS_MODULE: config.settings
     entrypoint: []
     command: ["celery", "-A", "config", "flower", "--port=5555"]
     working_dir: /app/worker/src
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     depends_on:
       - rabbitmq
-      - worker-api
-    profiles:
-      - ops
+      - core-api
+    logging: *json_logging
 
 volumes:
   pg_data:
+  rabbitmq_data:
+  redis_data:
+  hf_cache:
+  torch_cache:

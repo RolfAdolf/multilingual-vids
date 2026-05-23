@@ -22,7 +22,6 @@ class ModelLanguageAdmin(admin.ModelAdmin):
         "source_language_code",
         "target_language_code",
         "bleu",
-        "nist",
         "dataset_name",
     )
     list_filter = ("model", "source_language_code", "target_language_code")
