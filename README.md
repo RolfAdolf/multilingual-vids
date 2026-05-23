@@ -77,6 +77,8 @@ docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build
 | `frontend` | Vite HMR `:5173` |
 | `worker-*` | `entrypoint-celery-dev.sh` |
 
+Отключить воркер без остановки контейнера (не грузит ML, задачи → `ERROR` в БД): в `.envs/.worker-seamless`, `.worker-zeroshot` или `.worker-zeroswot` задать `WORKER_ENABLED=false`.
+
 Порты для отладки: Postgres `5432`, RabbitMQ `5672`/`15672`, Redis `6379`, Vite `5173`.
 
 ### Presigned upload из браузера (CORS)

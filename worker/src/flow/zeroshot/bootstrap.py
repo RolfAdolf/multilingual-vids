@@ -7,6 +7,7 @@ from pathlib import Path
 from django.conf import settings
 
 from config.json_log import log_event
+from config.worker_enabled import is_worker_enabled, worker_disabled_message
 from flow.zeroshot import mt_client
 from flow.zeroshot.mt_assets import _s3_prefix, download_translator_to_temp
 
@@ -17,15 +18,20 @@ def bootstrap_zeroshot_worker() -> None:
     """
     Zeroshot worker startup: download MT from S3, load into memory, remove temp files.
     """
-    if not _s3_prefix():
+    if not is_worker_enabled():
         log_event(
             logger,
             logging.INFO,
             "worker.zeroshot.bootstrap.skipped",
             layer="worker",
-            reason="ZEROSHOT_MT_S3_PREFIX unset",
+            reason=worker_disabled_message(),
         )
         return
+
+    if not _s3_prefix():
+        raise ValueError(
+            "ZEROSHOT_MT_S3_PREFIX is required; zeroshot MT is loaded from S3 only."
+        )
 
     tmp_dir: Path | None = None
     try:

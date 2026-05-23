@@ -80,6 +80,9 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_IMPORTS = ("tasks.video",)
 
+# Per-worker .env (.worker-seamless / .worker-zeroshot / .worker-zeroswot)
+WORKER_ENABLED = env.bool("WORKER_ENABLED", default=True)
+
 YANDEX_S3_ACCESS_KEY_ID = env("YANDEX_S3_ACCESS_KEY_ID", default="")
 YANDEX_S3_SECRET_ACCESS_KEY = env("YANDEX_S3_SECRET_ACCESS_KEY", default="")
 YANDEX_S3_ENDPOINT = env("YANDEX_S3_ENDPOINT", default="https://storage.yandexcloud.net")
@@ -88,12 +91,8 @@ YANDEX_S3_BUCKET_UPLOADS = env("YANDEX_S3_BUCKET_UPLOADS", default="multilingual
 YANDEX_S3_BUCKET_RESULTS = env("YANDEX_S3_BUCKET_RESULTS", default="multilingual-vids")
 YANDEX_S3_BUCKET_TEMP = env("YANDEX_S3_BUCKET_TEMP", default="multilingual-vids")
 
-ZEROSHOT_MT_S3_PREFIX = env("ZEROSHOT_MT_S3_PREFIX", default="")
+ZEROSHOT_MT_S3_PREFIX = env("ZEROSHOT_MT_S3_PREFIX", default="models/zeroshot/trained_8")
 ZEROSHOT_MT_S3_BUCKET = env("ZEROSHOT_MT_S3_BUCKET", default="")
-ZEROSHOT_GRADUATE_PROJECT_DIR = env("ZEROSHOT_GRADUATE_PROJECT_DIR", default="")
-ZEROSHOT_MT_TRANSLATOR_PATH = env("ZEROSHOT_MT_TRANSLATOR_PATH", default="")
-ZEROSHOT_MT_EXPORT_DIR = env("ZEROSHOT_MT_EXPORT_DIR", default="trained_models/augmented")
-ZEROSHOT_MT_EPOCH = env.int("ZEROSHOT_MT_EPOCH", default=8)
 ZEROSHOT_WHISPER_MODEL = env("ZEROSHOT_WHISPER_MODEL", default="large-v3")
 ZEROSHOT_WHISPER_DEVICE = env("ZEROSHOT_WHISPER_DEVICE", default="cpu")
 ZEROSHOT_WHISPER_COMPUTE_TYPE = env("ZEROSHOT_WHISPER_COMPUTE_TYPE", default="int8")

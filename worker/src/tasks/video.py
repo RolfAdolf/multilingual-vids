@@ -8,6 +8,7 @@ from django.utils import timezone
 from common.media import MediaProcessingError
 from config.celery import app
 from config.json_log import log_event, log_exception
+from config.worker_enabled import is_worker_enabled, worker_disabled_message
 from video.models import Video, VideoStatus
 from video.services import (
     mark_video_error,
@@ -57,6 +58,22 @@ def translate_video_task(self, video_id: str, model_slug: str, worker_queue: str
             task_id=task_id,
             video_id=video_id,
             reason="already_success",
+        )
+        return
+
+    if not is_worker_enabled():
+        message = worker_disabled_message()
+        mark_video_error(vid, message)
+        log_event(
+            logger,
+            logging.WARNING,
+            "worker.task.translate.disabled",
+            layer="task",
+            task_id=task_id,
+            video_id=video_id,
+            model_slug=model_slug,
+            worker_queue=worker_queue,
+            error_message=message,
         )
         return
 

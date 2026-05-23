@@ -70,7 +70,6 @@ services:
         INSTALL_DEV: "true"
     environment:
       CELERY_QUEUE: zeroshot
-      ZEROSHOT_MT_S3_PREFIX: ""
       ZEROSHOT_WHISPER_DEVICE: cpu
       ZEROSHOT_WHISPER_COMPUTE_TYPE: int8
       ZEROSHOT_WHISPER_MODEL: base
@@ -80,7 +79,6 @@ services:
     volumes:
       - ./core-api/src:/app/core-api/src
       - ./worker/src:/app/worker/src
-      - ../diploma/bachelor/graduate-project:/models/graduate-project:ro
 
   frontend:
     build:

@@ -30,7 +30,9 @@ app.autodiscover_tasks(["tasks"])
 # Ensure video.translate is registered (autodiscover loads tasks.tasks → tasks.video).
 import tasks.video  # noqa: E402, F401
 
-if os.environ.get("CELERY_QUEUE") == "zeroshot":
+from config.worker_enabled import is_worker_enabled, worker_disabled_message
+
+if os.environ.get("CELERY_QUEUE") == "zeroshot" and is_worker_enabled():
     from celery.signals import worker_process_init
 
     @worker_process_init.connect
@@ -38,6 +40,16 @@ if os.environ.get("CELERY_QUEUE") == "zeroshot":
         from flow.zeroshot.bootstrap import bootstrap_zeroshot_worker
 
         bootstrap_zeroshot_worker()
+
+if not is_worker_enabled():
+    log_event(
+        logger,
+        logging.WARNING,
+        "worker.celery.disabled",
+        layer="worker",
+        queue=os.environ.get("CELERY_QUEUE"),
+        message=worker_disabled_message(),
+    )
 
 _task_names = sorted(
     name for name in app.tasks if not name.startswith("celery.")

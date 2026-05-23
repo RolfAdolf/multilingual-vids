@@ -1,15 +1,11 @@
 # Очередь zeroshot (STT + MT + TTS)
 CELERY_QUEUE=zeroshot
+WORKER_ENABLED=false
 
-# MT SavedModel в S3 (production). При заданном префиксе воркер качает модель при старте.
+# MT SavedModel: воркер скачивает из S3 при старте (локально и в prod)
 ZEROSHOT_MT_S3_PREFIX=models/zeroshot/trained_8
 # Пусто = тот же бакет, что YANDEX_S3_BUCKET_UPLOADS
 ZEROSHOT_MT_S3_BUCKET=
-
-# Локальная разработка без S3: оставь ZEROSHOT_MT_S3_PREFIX пустым и укажи путь к translator_8
-# ZEROSHOT_MT_S3_PREFIX=
-ZEROSHOT_GRADUATE_PROJECT_DIR=/models/graduate-project
-ZEROSHOT_MT_TRANSLATOR_PATH=/models/graduate-project/trained_models/augmented/translator_8
 
 ZEROSHOT_WHISPER_MODEL=large-v3
 ZEROSHOT_WHISPER_DEVICE=cpu

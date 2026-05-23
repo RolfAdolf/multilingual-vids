@@ -1,2 +1,3 @@
 # Очередь zeroswot (ZeroSwot)
 CELERY_QUEUE=zeroswot
+WORKER_ENABLED=false
