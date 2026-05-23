@@ -5,7 +5,8 @@ venv
 !.envs_examples/
 frontend/.env
 frontend/.env.local
-storage
+# Local data dir at repo root only (not core-api/src/storage Python package)
+/storage/
 node_modules
 dist
 
