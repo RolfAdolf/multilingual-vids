@@ -23,6 +23,10 @@ _TOKENS_PER_10S_SPEECH = 256
 _T2U_TOKENS_MULTIPLIER = 4
 
 
+def _is_v2_model(model) -> bool:
+    return type(model).__name__ == "SeamlessM4Tv2Model"
+
+
 def _resolve_device() -> torch.device:
     device, _info = resolve_torch_device(
         getattr(settings, "SEAMLESS_DEVICE", "auto") or "auto"
@@ -262,7 +266,7 @@ def _model_bundle():
     return _model_bundle_cache
 
 
-def _generation_limits_for_audio(num_samples: int) -> dict[str, int]:
+def _generation_limits_for_audio(num_samples: int, *, speech_v2: bool) -> dict[str, int]:
     """Scale token limits with source length so generation is not cut to ~9s."""
     duration_sec = num_samples / SAMPLE_RATE_HZ
     env_cap = int(getattr(settings, "SEAMLESS_MAX_NEW_TOKENS", 0) or 0)
@@ -274,11 +278,14 @@ def _generation_limits_for_audio(num_samples: int) -> dict[str, int]:
             int(_TOKENS_PER_10S_SPEECH * (duration_sec / 10.0) * 1.25),
         )
     max_new_tokens = min(max_new_tokens, 4096)
-    t2u_max_new_tokens = min(max(1024, max_new_tokens * _T2U_TOKENS_MULTIPLIER), 4096)
-    return {
-        "max_new_tokens": max_new_tokens,
-        "t2u_max_new_tokens": t2u_max_new_tokens,
-    }
+    limits = {"max_new_tokens": max_new_tokens}
+    # SeamlessM4T v1 only; v2 rejects t2u_max_new_tokens in generate().
+    if not speech_v2:
+        limits["t2u_max_new_tokens"] = min(
+            max(1024, max_new_tokens * _T2U_TOKENS_MULTIPLIER),
+            4096,
+        )
+    return limits
 
 
 def translate_speech_file(
@@ -297,14 +304,14 @@ def translate_speech_file(
     audio = _load_audio_mono_16k(source_wav)
 
     inputs = processor(
-        audios=audio,
+        audio=audio,
         sampling_rate=SAMPLE_RATE_HZ,
         src_lang=src_lang,
         return_tensors="pt",
     )
     inputs = {key: value.to(device) for key, value in inputs.items()}
 
-    token_limits = _generation_limits_for_audio(len(audio))
+    token_limits = _generation_limits_for_audio(len(audio), speech_v2=_is_v2_model(model))
     source_duration_sec = round(len(audio) / SAMPLE_RATE_HZ, 2)
     generate_kwargs: dict = {
         "tgt_lang": tgt_lang,
