@@ -376,6 +376,92 @@ def _generation_limits_for_audio(
     return limits
 
 
+def _chunk_max_seconds() -> float:
+    return float(getattr(settings, "SEAMLESS_CHUNK_MAX_SECONDS", 20.0) or 0.0)
+
+
+def _split_audio_chunks(audio: np.ndarray, max_seconds: float) -> list[np.ndarray]:
+    if max_seconds <= 0:
+        return [audio]
+    max_samples = int(max_seconds * SAMPLE_RATE_HZ)
+    if len(audio) <= max_samples:
+        return [audio]
+    chunks: list[np.ndarray] = []
+    start = 0
+    while start < len(audio):
+        end = min(start + max_samples, len(audio))
+        chunks.append(audio[start:end])
+        if end >= len(audio):
+            break
+        start = end
+    return chunks
+
+
+def _translate_audio_chunk(
+    *,
+    processor,
+    model,
+    device: torch.device,
+    audio: np.ndarray,
+    src_lang: str,
+    tgt_lang: str,
+    speech_v2: bool,
+    chunk_index: int,
+    chunk_count: int,
+) -> np.ndarray:
+    inputs = processor(
+        audio=audio,
+        sampling_rate=SAMPLE_RATE_HZ,
+        src_lang=src_lang,
+        return_tensors="pt",
+    )
+    inputs = {key: value.to(device) for key, value in inputs.items()}
+
+    token_limits = _generation_limits_for_audio(
+        len(audio),
+        speech_v2=speech_v2,
+        model=model,
+    )
+    generate_kwargs = _build_generate_kwargs(
+        tgt_lang=tgt_lang,
+        max_new_tokens=token_limits["max_new_tokens"],
+        speech_v2=speech_v2,
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "worker.seamless.translate.chunk",
+        layer="pipeline",
+        src_lang=src_lang,
+        tgt_lang=tgt_lang,
+        chunk_index=chunk_index,
+        chunk_count=chunk_count,
+        chunk_samples=len(audio),
+        chunk_duration_sec=round(len(audio) / SAMPLE_RATE_HZ, 2),
+        max_new_tokens=token_limits["max_new_tokens"],
+    )
+
+    with torch.no_grad():
+        output = model.generate(**inputs, **generate_kwargs)
+
+    translated, waveform_samples = _waveform_from_generate(output)
+    if translated.size == 0:
+        raise RuntimeError(f"SeamlessM4T returned empty audio for chunk {chunk_index}")
+
+    log_event(
+        logger,
+        logging.INFO,
+        "worker.seamless.translate.chunk.done",
+        layer="pipeline",
+        chunk_index=chunk_index,
+        chunk_count=chunk_count,
+        output_duration_sec=round(len(translated) / SAMPLE_RATE_HZ, 2),
+        waveform_samples=waveform_samples,
+    )
+    return translated
+
+
 def translate_speech_file(
     source_wav: Path,
     output_wav: Path,
@@ -388,27 +474,10 @@ def translate_speech_file(
     """
     processor, model, device = _model_bundle()
     audio = _load_audio_mono_16k(source_wav)
-
-    inputs = processor(
-        audio=audio,
-        sampling_rate=SAMPLE_RATE_HZ,
-        src_lang=src_lang,
-        return_tensors="pt",
-    )
-    inputs = {key: value.to(device) for key, value in inputs.items()}
-
-    token_limits = _generation_limits_for_audio(
-        len(audio),
-        speech_v2=_is_v2_model(model),
-        model=model,
-    )
-    source_duration_sec = token_limits["source_duration_sec"]
-    max_new_tokens = token_limits["max_new_tokens"]
-    generate_kwargs = _build_generate_kwargs(
-        tgt_lang=tgt_lang,
-        max_new_tokens=max_new_tokens,
-        speech_v2=_is_v2_model(model),
-    )
+    speech_v2 = _is_v2_model(model)
+    source_duration_sec = round(len(audio) / SAMPLE_RATE_HZ, 2)
+    chunk_max_sec = _chunk_max_seconds()
+    chunks = _split_audio_chunks(audio, chunk_max_sec)
     config_cap = getattr(model.generation_config, "max_new_tokens", None)
 
     log_event(
@@ -420,20 +489,28 @@ def translate_speech_file(
         tgt_lang=tgt_lang,
         source_samples=len(audio),
         source_duration_sec=source_duration_sec,
-        max_new_tokens=max_new_tokens,
-        text_max_new_tokens=generate_kwargs.get("text_max_new_tokens"),
+        chunk_count=len(chunks),
+        chunk_max_seconds=chunk_max_sec,
         generation_config_max_new_tokens=config_cap,
-        limit_mode=token_limits["limit_mode"],
-        model_max=token_limits["model_max"],
     )
 
-    with torch.no_grad():
-        output = model.generate(**inputs, **generate_kwargs)
+    translated_parts: list[np.ndarray] = []
+    for index, chunk in enumerate(chunks):
+        translated_parts.append(
+            _translate_audio_chunk(
+                processor=processor,
+                model=model,
+                device=device,
+                audio=chunk,
+                src_lang=src_lang,
+                tgt_lang=tgt_lang,
+                speech_v2=speech_v2,
+                chunk_index=index,
+                chunk_count=len(chunks),
+            )
+        )
 
-    translated, waveform_samples = _waveform_from_generate(output)
-    if translated.size == 0:
-        raise RuntimeError("SeamlessM4T returned empty audio")
-
+    translated = np.concatenate(translated_parts) if len(translated_parts) > 1 else translated_parts[0]
     peak = float(np.max(np.abs(translated))) if translated.size else 0.0
     if peak > 1.0:
         translated = translated / peak
@@ -449,10 +526,8 @@ def translate_speech_file(
         tgt_lang=tgt_lang,
         source_duration_sec=source_duration_sec,
         output_duration_sec=output_duration_sec,
-        waveform_samples=waveform_samples,
-        max_new_tokens=max_new_tokens,
+        chunk_count=len(chunks),
         generation_config_max_new_tokens=config_cap,
-        limit_mode=token_limits["limit_mode"],
     )
     if output_duration_sec < source_duration_sec * 0.5:
         log_event(
@@ -462,5 +537,6 @@ def translate_speech_file(
             layer="pipeline",
             source_duration_sec=source_duration_sec,
             output_duration_sec=output_duration_sec,
-            hint="Rebuild worker-seamless image; expect max_new_tokens=4096 in translate.start log",
+            chunk_count=len(chunks),
+            hint="Model output is short; video mux still uses duration stretch (aligned.wav)",
         )

@@ -11,3 +11,5 @@ SEAMLESS_MODEL_LOCAL_DIR=/models/seamless-m4t-v2-large
 SEAMLESS_DEVICE=cuda
 # 0 (default) = model maximum (4096). Lower only to save VRAM/time.
 # SEAMLESS_MAX_NEW_TOKENS=4096
+# Длинное видео: перевод по чанкам (сек). 0 = один проход (часто ~8–10 с речи).
+SEAMLESS_CHUNK_MAX_SECONDS=5

@@ -105,6 +105,8 @@ SEAMLESS_HF_MODEL_ID = env(
 SEAMLESS_MODEL_LOCAL_DIR = env("SEAMLESS_MODEL_LOCAL_DIR", default="")
 SEAMLESS_DEVICE = env("SEAMLESS_DEVICE", default="auto")
 SEAMLESS_MAX_NEW_TOKENS = env.int("SEAMLESS_MAX_NEW_TOKENS", default=0)
+# Long audio: translate in chunks (seconds). 0 = single pass (often truncates ~8–10s output).
+SEAMLESS_CHUNK_MAX_SECONDS = env.float("SEAMLESS_CHUNK_MAX_SECONDS", default=5.0)
 
 LOGGING = {
     "version": 1,
