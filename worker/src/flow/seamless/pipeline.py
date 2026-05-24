@@ -10,6 +10,7 @@ from common.media import (
     ensure_non_empty_file,
     extract_audio_mono_16k,
     local_input_path,
+    match_audio_duration,
     mux_video_with_audio,
 )
 from common.pipeline_base import PipelineResult
@@ -90,7 +91,9 @@ class SeamlessPipeline:
             )
 
             progress_callback(75)
-            mux_video_with_audio(source_local, translated_wav, output_local)
+            aligned_wav = tmp_path / "aligned.wav"
+            match_audio_duration(source_wav, translated_wav, aligned_wav)
+            mux_video_with_audio(source_local, aligned_wav, output_local)
 
             out_key = result_object_key(video.id)
             progress_callback(85)

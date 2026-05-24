@@ -9,4 +9,5 @@ SEAMLESS_HF_MODEL_ID=facebook/seamless-m4t-v2-large
 SEAMLESS_MODEL_LOCAL_DIR=/models/seamless-m4t-v2-large
 # Production (GPU): cuda | Local dev overlay forces cpu
 SEAMLESS_DEVICE=cuda
-# SEAMLESS_MAX_NEW_TOKENS=256
+# 0 (default) = model maximum (4096). Lower only to save VRAM/time.
+# SEAMLESS_MAX_NEW_TOKENS=4096

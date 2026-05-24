@@ -266,25 +266,44 @@ def _model_bundle():
     return _model_bundle_cache
 
 
-def _generation_limits_for_audio(num_samples: int, *, speech_v2: bool) -> dict[str, int]:
-    """Scale token limits with source length so generation is not cut to ~9s."""
+def _model_max_new_tokens(model) -> int:
+    """Architectural cap (typically 4096). Generation cannot exceed this."""
+    for attr in ("max_position_embeddings", "t2u_max_position_embeddings"):
+        value = getattr(getattr(model, "config", None), attr, None)
+        if isinstance(value, int) and value > 0:
+            return value
+    return 4096
+
+
+def _generation_limits_for_audio(
+    num_samples: int,
+    *,
+    speech_v2: bool,
+    model,
+) -> dict[str, int]:
+    """
+    Pick max_new_tokens for generate().
+
+    There is no true "unlimited" mode: the model and GPU bound output length.
+    When SEAMLESS_MAX_NEW_TOKENS=0 (default), we use the model maximum so HF does
+    not fall back to generation_config default (256 ≈ 9s of speech).
+    """
     duration_sec = num_samples / SAMPLE_RATE_HZ
+    model_max = _model_max_new_tokens(model)
     env_cap = int(getattr(settings, "SEAMLESS_MAX_NEW_TOKENS", 0) or 0)
     if env_cap > 0:
-        max_new_tokens = env_cap
+        max_new_tokens = min(env_cap, model_max)
+        limit_mode = "env"
     else:
-        max_new_tokens = max(
-            _TOKENS_PER_10S_SPEECH,
-            int(_TOKENS_PER_10S_SPEECH * (duration_sec / 10.0) * 1.25),
-        )
-    max_new_tokens = min(max_new_tokens, 4096)
-    limits = {"max_new_tokens": max_new_tokens}
-    # SeamlessM4T v1 only; v2 rejects t2u_max_new_tokens in generate().
+        max_new_tokens = model_max
+        limit_mode = "model_max"
+    limits = {"max_new_tokens": max_new_tokens, "limit_mode": limit_mode, "model_max": model_max}
     if not speech_v2:
         limits["t2u_max_new_tokens"] = min(
             max(1024, max_new_tokens * _T2U_TOKENS_MULTIPLIER),
-            4096,
+            model_max,
         )
+    limits["source_duration_sec"] = round(duration_sec, 2)
     return limits
 
 
@@ -296,9 +315,7 @@ def translate_speech_file(
     tgt_lang: str,
 ) -> None:
     """
-    Speech-to-speech: 16 kHz mono WAV in → translated speech WAV out.
-
-    src_lang / tgt_lang: Seamless codes (e.g. deu, ukr) from lang_mapping.
+    Speech-to-speech: 16 kHz mono WAV in → translated WAV (model output, not time-stretched).
     """
     processor, model, device = _model_bundle()
     audio = _load_audio_mono_16k(source_wav)
@@ -311,13 +328,19 @@ def translate_speech_file(
     )
     inputs = {key: value.to(device) for key, value in inputs.items()}
 
-    token_limits = _generation_limits_for_audio(len(audio), speech_v2=_is_v2_model(model))
-    source_duration_sec = round(len(audio) / SAMPLE_RATE_HZ, 2)
+    token_limits = _generation_limits_for_audio(
+        len(audio),
+        speech_v2=_is_v2_model(model),
+        model=model,
+    )
+    source_duration_sec = token_limits["source_duration_sec"]
     generate_kwargs: dict = {
         "tgt_lang": tgt_lang,
         "generate_speech": True,
-        **token_limits,
+        "max_new_tokens": token_limits["max_new_tokens"],
     }
+    if not _is_v2_model(model):
+        generate_kwargs["t2u_max_new_tokens"] = token_limits["t2u_max_new_tokens"]
 
     log_event(
         logger,
@@ -328,7 +351,9 @@ def translate_speech_file(
         tgt_lang=tgt_lang,
         source_samples=len(audio),
         source_duration_sec=source_duration_sec,
-        **token_limits,
+        max_new_tokens=token_limits["max_new_tokens"],
+        limit_mode=token_limits["limit_mode"],
+        model_max=token_limits["model_max"],
     )
 
     with torch.no_grad():
@@ -342,23 +367,17 @@ def translate_speech_file(
     if peak > 1.0:
         translated = translated / peak
 
-    raw_wav = output_wav.with_name(f"{output_wav.stem}_raw.wav")
-    sf.write(str(raw_wav), translated, SAMPLE_RATE_HZ)
-    raw_duration_sec = round(len(translated) / SAMPLE_RATE_HZ, 2)
-
-    from common.media import match_audio_duration
-
-    stretch_info = match_audio_duration(source_wav, raw_wav, output_wav)
+    sf.write(str(output_wav), translated, SAMPLE_RATE_HZ)
+    output_duration_sec = round(len(translated) / SAMPLE_RATE_HZ, 2)
     log_event(
         logger,
         logging.INFO,
-        "worker.seamless.translate.duration",
+        "worker.seamless.translate.done",
         layer="pipeline",
         src_lang=src_lang,
         tgt_lang=tgt_lang,
         source_duration_sec=source_duration_sec,
-        raw_duration_sec=raw_duration_sec,
-        output_duration_sec=stretch_info["output_sec"],
-        duration_stretched=bool(stretch_info.get("stretched")),
-        **token_limits,
+        output_duration_sec=output_duration_sec,
+        max_new_tokens=token_limits["max_new_tokens"],
+        limit_mode=token_limits["limit_mode"],
     )
