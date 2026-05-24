@@ -18,6 +18,9 @@ from config.json_log import log_event
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE_HZ = 16_000
+# Default HF generation_config uses max_new_tokens=256 (~10s of speech output).
+_TOKENS_PER_10S_SPEECH = 256
+_T2U_TOKENS_MULTIPLIER = 4
 
 
 def _resolve_device() -> torch.device:
@@ -259,6 +262,25 @@ def _model_bundle():
     return _model_bundle_cache
 
 
+def _generation_limits_for_audio(num_samples: int) -> dict[str, int]:
+    """Scale token limits with source length so generation is not cut to ~9s."""
+    duration_sec = num_samples / SAMPLE_RATE_HZ
+    env_cap = int(getattr(settings, "SEAMLESS_MAX_NEW_TOKENS", 0) or 0)
+    if env_cap > 0:
+        max_new_tokens = env_cap
+    else:
+        max_new_tokens = max(
+            _TOKENS_PER_10S_SPEECH,
+            int(_TOKENS_PER_10S_SPEECH * (duration_sec / 10.0) * 1.25),
+        )
+    max_new_tokens = min(max_new_tokens, 4096)
+    t2u_max_new_tokens = min(max(1024, max_new_tokens * _T2U_TOKENS_MULTIPLIER), 4096)
+    return {
+        "max_new_tokens": max_new_tokens,
+        "t2u_max_new_tokens": t2u_max_new_tokens,
+    }
+
+
 def translate_speech_file(
     source_wav: Path,
     output_wav: Path,
@@ -282,19 +304,24 @@ def translate_speech_file(
     )
     inputs = {key: value.to(device) for key, value in inputs.items()}
 
+    token_limits = _generation_limits_for_audio(len(audio))
+    source_duration_sec = round(len(audio) / SAMPLE_RATE_HZ, 2)
     generate_kwargs: dict = {
         "tgt_lang": tgt_lang,
         "generate_speech": True,
+        **token_limits,
     }
-    max_new_tokens = getattr(settings, "SEAMLESS_MAX_NEW_TOKENS", None)
-    if max_new_tokens:
-        generate_kwargs["max_new_tokens"] = int(max_new_tokens)
 
-    logger.info(
-        "Seamless S2ST src_lang=%s tgt_lang=%s samples=%d",
-        src_lang,
-        tgt_lang,
-        len(audio),
+    log_event(
+        logger,
+        logging.INFO,
+        "worker.seamless.translate.start",
+        layer="pipeline",
+        src_lang=src_lang,
+        tgt_lang=tgt_lang,
+        source_samples=len(audio),
+        source_duration_sec=source_duration_sec,
+        **token_limits,
     )
 
     with torch.no_grad():
@@ -308,5 +335,23 @@ def translate_speech_file(
     if peak > 1.0:
         translated = translated / peak
 
-    sf.write(str(output_wav), translated, SAMPLE_RATE_HZ)
-    logger.info("Seamless S2ST wrote %s (%d samples)", output_wav, translated.size)
+    raw_wav = output_wav.with_name(f"{output_wav.stem}_raw.wav")
+    sf.write(str(raw_wav), translated, SAMPLE_RATE_HZ)
+    raw_duration_sec = round(len(translated) / SAMPLE_RATE_HZ, 2)
+
+    from common.media import match_audio_duration
+
+    stretch_info = match_audio_duration(source_wav, raw_wav, output_wav)
+    log_event(
+        logger,
+        logging.INFO,
+        "worker.seamless.translate.duration",
+        layer="pipeline",
+        src_lang=src_lang,
+        tgt_lang=tgt_lang,
+        source_duration_sec=source_duration_sec,
+        raw_duration_sec=raw_duration_sec,
+        output_duration_sec=stretch_info["output_sec"],
+        duration_stretched=bool(stretch_info.get("stretched")),
+        **token_limits,
+    )
