@@ -112,24 +112,35 @@ def _load_audio_mono_16k(wav_path: Path) -> np.ndarray:
     return np.asarray(audio, dtype=np.float32)
 
 
+def _first_batch_scalar(tensor) -> int:
+    """waveform_lengths may be a scalar (batch=1) or shape (batch,)."""
+    if tensor is None:
+        raise ValueError("empty tensor")
+    if hasattr(tensor, "detach"):
+        tensor = tensor.detach().cpu()
+    if getattr(tensor, "ndim", 0) == 0:
+        return int(tensor.item())
+    return int(tensor.reshape(-1)[0].item())
+
+
 def _waveform_from_generate(output) -> tuple[np.ndarray, int | None]:
     """
-  Extract speech waveform from Seamless generate() output.
+    Extract speech waveform from Seamless generate() output.
 
-  v2 returns (waveform, waveform_lengths); do not use .sequences (text tokens).
-  """
+    v2 returns (waveform, waveform_lengths); do not use .sequences (text tokens).
+    """
     waveform = None
     length: int | None = None
 
     if isinstance(output, tuple) and len(output) >= 1:
         waveform = output[0]
         if len(output) >= 2 and output[1] is not None:
-            length = int(output[1][0].item())
+            length = _first_batch_scalar(output[1])
     elif hasattr(output, "waveform"):
         waveform = output.waveform
         wl = getattr(output, "waveform_lengths", None)
         if wl is not None:
-            length = int(wl[0].item())
+            length = _first_batch_scalar(wl)
 
     if waveform is None:
         raise RuntimeError(f"Unexpected Seamless generate() return type: {type(output)!r}")
