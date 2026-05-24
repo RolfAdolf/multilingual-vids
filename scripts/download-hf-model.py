@@ -36,6 +36,36 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _patch_max_new_tokens(model_dir: Path, *, value: int) -> None:
+    """HF ships max_new_tokens=256 (~9s speech). Patch on-disk configs for local loads."""
+    import json
+    import re
+
+    config_path = model_dir / "config.json"
+    if config_path.is_file():
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        if data.get("max_new_tokens") != value:
+            data["max_new_tokens"] = value
+            config_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            logging.info("Set max_new_tokens=%s in %s", value, config_path)
+
+    gen_path = model_dir / "generation_config.json"
+    if gen_path.is_file():
+        text = gen_path.read_text(encoding="utf-8")
+        patched, count = re.subn(
+            r'"max_new_tokens":\s*\d+',
+            f'"max_new_tokens": {value}',
+            text,
+            count=1,
+        )
+        if count and patched != text:
+            gen_path.write_text(patched, encoding="utf-8")
+            logging.info("Set max_new_tokens=%s in %s", value, gen_path)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args()
@@ -49,6 +79,7 @@ def main() -> None:
         token=args.token,
         local_dir=output_dir,
     )
+    _patch_max_new_tokens(output_dir, value=4096)
     logging.info("Model is ready in %s", output_dir)
     logging.info("Copy this directory to the GPU server, for example:")
     logging.info("rsync -av %s/ user@gpu-server:/opt/models/seamless-m4t-v2-large/", output_dir)

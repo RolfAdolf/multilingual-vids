@@ -112,17 +112,39 @@ def _load_audio_mono_16k(wav_path: Path) -> np.ndarray:
     return np.asarray(audio, dtype=np.float32)
 
 
-def _waveform_from_generate(output) -> np.ndarray:
-    if hasattr(output, "sequences"):
-        tensor = output.sequences
+def _waveform_from_generate(output) -> tuple[np.ndarray, int | None]:
+    """
+  Extract speech waveform from Seamless generate() output.
+
+  v2 returns (waveform, waveform_lengths); do not use .sequences (text tokens).
+  """
+    waveform = None
+    length: int | None = None
+
+    if isinstance(output, tuple) and len(output) >= 1:
+        waveform = output[0]
+        if len(output) >= 2 and output[1] is not None:
+            length = int(output[1][0].item())
+    elif hasattr(output, "waveform"):
+        waveform = output.waveform
+        wl = getattr(output, "waveform_lengths", None)
+        if wl is not None:
+            length = int(wl[0].item())
+
+    if waveform is None:
+        raise RuntimeError(f"Unexpected Seamless generate() return type: {type(output)!r}")
+
+    if hasattr(waveform, "cpu"):
+        waveform = waveform.cpu()
+    array = waveform.numpy() if hasattr(waveform, "numpy") else np.asarray(waveform)
+    array = np.squeeze(array).astype(np.float32)
+
+    if length is None or length <= 0 or length > array.size:
+        length = int(array.size)
     else:
-        tensor = output
-    if isinstance(tensor, (list, tuple)):
-        tensor = tensor[0]
-    if hasattr(tensor, "cpu"):
-        tensor = tensor.cpu()
-    array = tensor.numpy() if hasattr(tensor, "numpy") else np.asarray(tensor)
-    return np.squeeze(array).astype(np.float32)
+        array = array[:length]
+
+    return array, length
 
 
 def _load_model_bundle(*, layer: str = "worker"):
@@ -220,6 +242,7 @@ def _load_model_bundle(*, layer: str = "worker"):
     )
     model = model.to(device)
     model.eval()
+    _patch_generation_token_limits(model)
     _log_model_load(
         "device_transfer",
         layer=layer,
@@ -227,6 +250,7 @@ def _load_model_bundle(*, layer: str = "worker"):
         status="ready",
         target_device=str(device),
         duration_sec=round(time.monotonic() - t2, 2),
+        generation_max_new_tokens=getattr(model.generation_config, "max_new_tokens", None),
     )
 
     total_sec = round(time.monotonic() - t0, 2)
@@ -273,6 +297,40 @@ def _model_max_new_tokens(model) -> int:
         if isinstance(value, int) and value > 0:
             return value
     return 4096
+
+
+def _patch_generation_token_limits(model) -> int:
+    """Raise HF defaults (256) so generate() is not capped to ~9s of speech."""
+    cap = _model_max_new_tokens(model)
+    env_cap = int(getattr(settings, "SEAMLESS_MAX_NEW_TOKENS", 0) or 0)
+    value = min(env_cap, cap) if env_cap > 0 else cap
+    if hasattr(model, "generation_config") and model.generation_config is not None:
+        model.generation_config.max_new_tokens = value
+    if hasattr(model, "config") and hasattr(model.config, "max_new_tokens"):
+        model.config.max_new_tokens = value
+    return value
+
+
+def _build_generate_kwargs(
+    *,
+    tgt_lang: str,
+    max_new_tokens: int,
+    speech_v2: bool,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "tgt_lang": tgt_lang,
+        "generate_speech": True,
+        "max_new_tokens": max_new_tokens,
+    }
+    # v2 routes unprefixed kwargs to text+speech; text stage limits output length.
+    if speech_v2:
+        kwargs["text_max_new_tokens"] = max_new_tokens
+    else:
+        kwargs["t2u_max_new_tokens"] = min(
+            max(1024, max_new_tokens * _T2U_TOKENS_MULTIPLIER),
+            4096,
+        )
+    return kwargs
 
 
 def _generation_limits_for_audio(
@@ -334,13 +392,13 @@ def translate_speech_file(
         model=model,
     )
     source_duration_sec = token_limits["source_duration_sec"]
-    generate_kwargs: dict = {
-        "tgt_lang": tgt_lang,
-        "generate_speech": True,
-        "max_new_tokens": token_limits["max_new_tokens"],
-    }
-    if not _is_v2_model(model):
-        generate_kwargs["t2u_max_new_tokens"] = token_limits["t2u_max_new_tokens"]
+    max_new_tokens = token_limits["max_new_tokens"]
+    generate_kwargs = _build_generate_kwargs(
+        tgt_lang=tgt_lang,
+        max_new_tokens=max_new_tokens,
+        speech_v2=_is_v2_model(model),
+    )
+    config_cap = getattr(model.generation_config, "max_new_tokens", None)
 
     log_event(
         logger,
@@ -351,7 +409,9 @@ def translate_speech_file(
         tgt_lang=tgt_lang,
         source_samples=len(audio),
         source_duration_sec=source_duration_sec,
-        max_new_tokens=token_limits["max_new_tokens"],
+        max_new_tokens=max_new_tokens,
+        text_max_new_tokens=generate_kwargs.get("text_max_new_tokens"),
+        generation_config_max_new_tokens=config_cap,
         limit_mode=token_limits["limit_mode"],
         model_max=token_limits["model_max"],
     )
@@ -359,7 +419,7 @@ def translate_speech_file(
     with torch.no_grad():
         output = model.generate(**inputs, **generate_kwargs)
 
-    translated = _waveform_from_generate(output)
+    translated, waveform_samples = _waveform_from_generate(output)
     if translated.size == 0:
         raise RuntimeError("SeamlessM4T returned empty audio")
 
@@ -378,6 +438,18 @@ def translate_speech_file(
         tgt_lang=tgt_lang,
         source_duration_sec=source_duration_sec,
         output_duration_sec=output_duration_sec,
-        max_new_tokens=token_limits["max_new_tokens"],
+        waveform_samples=waveform_samples,
+        max_new_tokens=max_new_tokens,
+        generation_config_max_new_tokens=config_cap,
         limit_mode=token_limits["limit_mode"],
     )
+    if output_duration_sec < source_duration_sec * 0.5:
+        log_event(
+            logger,
+            logging.WARNING,
+            "worker.seamless.translate.short_output",
+            layer="pipeline",
+            source_duration_sec=source_duration_sec,
+            output_duration_sec=output_duration_sec,
+            hint="Rebuild worker-seamless image; expect max_new_tokens=4096 in translate.start log",
+        )
