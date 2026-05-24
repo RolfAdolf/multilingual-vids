@@ -32,8 +32,9 @@ WORKDIR /app/worker
 ARG POETRY_GROUP=
 RUN poetry install --no-interaction --no-ansi --no-root \
     && if [ -n "$POETRY_GROUP" ]; then poetry install --no-interaction --no-ansi --with "$POETRY_GROUP"; fi \
-    && pip install --no-cache-dir --upgrade \
-        torch torchaudio \
+    && pip install --no-cache-dir --force-reinstall \
+        "torch==2.6.0+cu124" \
+        "torchaudio==2.6.0+cu124" \
         --index-url https://download.pytorch.org/whl/cu124
 
 COPY core-api/src /app/core-api/src
