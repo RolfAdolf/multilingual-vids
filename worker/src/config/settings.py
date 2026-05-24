@@ -102,6 +102,7 @@ SEAMLESS_HF_MODEL_ID = env(
     "SEAMLESS_HF_MODEL_ID",
     default="facebook/hf-seamless-m4t-medium",
 )
+SEAMLESS_MODEL_LOCAL_DIR = env("SEAMLESS_MODEL_LOCAL_DIR", default="")
 SEAMLESS_DEVICE = env("SEAMLESS_DEVICE", default="auto")
 SEAMLESS_MAX_NEW_TOKENS = env.int("SEAMLESS_MAX_NEW_TOKENS", default=0)
 
@@ -118,6 +119,9 @@ LOGGING = {
         "config.celery": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "tasks": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "flow": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "flow.seamless": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "huggingface_hub": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "transformers": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },
     "root": {"handlers": ["console"], "level": "INFO"},
 }

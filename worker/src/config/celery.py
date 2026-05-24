@@ -32,6 +32,22 @@ import tasks.video  # noqa: E402, F401
 
 from config.worker_enabled import is_worker_enabled, worker_disabled_message
 
+if is_worker_enabled():
+    from celery.signals import worker_process_init
+
+    @worker_process_init.connect
+    def _log_worker_compute_devices(**_kwargs):
+        queue = os.environ.get("CELERY_QUEUE")
+        if queue == "seamless":
+            from flow.seamless.inference import log_seamless_device_init, warm_seamless_model
+
+            log_seamless_device_init()
+            warm_seamless_model()
+        elif queue == "zeroshot":
+            from flow.zeroshot.device_init import log_zeroshot_whisper_device_init
+
+            log_zeroshot_whisper_device_init()
+
 if os.environ.get("CELERY_QUEUE") == "zeroshot" and is_worker_enabled():
     from celery.signals import worker_process_init
 

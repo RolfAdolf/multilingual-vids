@@ -5,6 +5,8 @@ WORKER_ENABLED=true
 
 # Hugging Face SeamlessM4T (speech-to-speech)
 SEAMLESS_HF_MODEL_ID=facebook/seamless-m4t-v2-large
+# Path inside the container. docker-compose mounts the host model dir here.
+SEAMLESS_MODEL_LOCAL_DIR=/models/seamless-m4t-v2-large
 # Production (GPU): cuda | Local dev overlay forces cpu
 SEAMLESS_DEVICE=cuda
 # SEAMLESS_MAX_NEW_TOKENS=256

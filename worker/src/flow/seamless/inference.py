@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import json
 import logging
-from functools import lru_cache
+import os
+import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import soundfile as sf
 import torch
 from django.conf import settings
+
+from common.compute_device import log_compute_init, resolve_torch_device
+from config.json_log import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +21,75 @@ SAMPLE_RATE_HZ = 16_000
 
 
 def _resolve_device() -> torch.device:
-    choice = (getattr(settings, "SEAMLESS_DEVICE", "auto") or "auto").lower()
-    if choice == "auto":
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-    return torch.device(choice)
+    device, _info = resolve_torch_device(
+        getattr(settings, "SEAMLESS_DEVICE", "auto") or "auto"
+    )
+    return device
+
+
+def _enable_hf_hub_logging() -> None:
+    """Surface Hugging Face download / cache progress in container stdout."""
+    os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "info")
+    for name in ("huggingface_hub", "transformers", "filelock"):
+        hf_logger = logging.getLogger(name)
+        hf_logger.setLevel(logging.INFO)
+        hf_logger.propagate = True
+
+
+def _log_model_load(phase: str, *, layer: str = "worker", model_id: str, **fields) -> None:
+    log_event(
+        logger,
+        logging.INFO,
+        f"worker.seamless.model.load.{phase}",
+        layer=layer,
+        component="seamless_m4t",
+        model_id=model_id,
+        **fields,
+    )
+
+
+def _is_seamless_v2_model(model_id: str, load_path: str | Path) -> bool:
+    if "m4t-v2" in model_id or "seamless-m4t-v2" in model_id:
+        return True
+
+    config_path = Path(load_path) / "config.json"
+    if not config_path.is_file():
+        return False
+
+    try:
+        with config_path.open("r", encoding="utf-8") as file:
+            config = json.load(file)
+    except (OSError, ValueError):
+        return False
+    return config.get("model_type") == "seamless_m4t_v2"
+
+
+def _model_load_path(model_id: str) -> str | Path:
+    local_dir = (getattr(settings, "SEAMLESS_MODEL_LOCAL_DIR", "") or "").strip()
+    if not local_dir:
+        return model_id
+
+    model_dir = Path(local_dir)
+    if not (model_dir / "config.json").is_file():
+        raise FileNotFoundError(f"config.json missing under {model_dir}")
+    return model_dir
+
+
+def log_seamless_device_init(*, layer: str = "worker") -> None:
+    """Log CUDA/CPU choice at worker start (does not load the HF model)."""
+    requested = getattr(settings, "SEAMLESS_DEVICE", "auto") or "auto"
+    _device, info = resolve_torch_device(requested)
+    log_compute_init(
+        logger,
+        "worker.seamless.device.init",
+        component="seamless_m4t",
+        requested=requested,
+        resolved=info["resolved"],
+        using_gpu=info["using_gpu"],
+        layer=layer,
+        **{k: info[k] for k in ("cuda_available", "cuda_device_count", "cuda_device_name", "mps_available") if k in info},
+    )
 
 
 def _load_audio_mono_16k(wav_path: Path) -> np.ndarray:
@@ -51,21 +118,145 @@ def _waveform_from_generate(output) -> np.ndarray:
     return np.squeeze(array).astype(np.float32)
 
 
-@lru_cache(maxsize=1)
-def _model_bundle():
+def _load_model_bundle(*, layer: str = "worker"):
     from transformers import AutoProcessor, SeamlessM4TModel
 
+    try:
+        from transformers import SeamlessM4Tv2Model
+    except ImportError:
+        SeamlessM4Tv2Model = None
+
+    _enable_hf_hub_logging()
+
+    bundle_t0 = time.monotonic()
     model_id = getattr(
         settings,
         "SEAMLESS_HF_MODEL_ID",
         "facebook/hf-seamless-m4t-medium",
     )
-    device = _resolve_device()
-    logger.info("Loading SeamlessM4T model_id=%s device=%s", model_id, device)
-    processor = AutoProcessor.from_pretrained(model_id)
-    model = SeamlessM4TModel.from_pretrained(model_id).to(device)
+    requested = getattr(settings, "SEAMLESS_DEVICE", "auto") or "auto"
+    device, info = resolve_torch_device(requested)
+
+    _log_model_load(
+        "start",
+        layer=layer,
+        model_id=model_id,
+        requested_device=requested,
+        resolved_device=info["resolved"],
+        using_gpu=info["using_gpu"],
+        **{k: info[k] for k in ("cuda_available", "cuda_device_count", "cuda_device_name", "mps_available") if k in info},
+    )
+    log_compute_init(
+        logger,
+        "worker.seamless.model.init",
+        component="seamless_m4t",
+        requested=requested,
+        resolved=info["resolved"],
+        using_gpu=info["using_gpu"],
+        layer=layer,
+        model_id=model_id,
+        **{k: info[k] for k in ("cuda_available", "cuda_device_count", "cuda_device_name", "mps_available") if k in info},
+    )
+
+    load_path = _model_load_path(model_id)
+    source = "local" if isinstance(load_path, Path) else "huggingface"
+    _log_model_load(
+        "source",
+        layer=layer,
+        model_id=model_id,
+        source=source,
+        load_path=str(load_path),
+    )
+
+    t0 = time.monotonic()
+    _log_model_load("processor", layer=layer, model_id=model_id, status="loading")
+    processor = AutoProcessor.from_pretrained(load_path)
+    _log_model_load(
+        "processor",
+        layer=layer,
+        model_id=model_id,
+        status="ready",
+        duration_sec=round(time.monotonic() - t0, 2),
+    )
+
+    model_class = SeamlessM4TModel
+    if _is_seamless_v2_model(model_id, load_path):
+        if SeamlessM4Tv2Model is None:
+            raise ImportError("Installed transformers does not provide SeamlessM4Tv2Model")
+        model_class = SeamlessM4Tv2Model
+
+    t1 = time.monotonic()
+    _log_model_load(
+        "weights",
+        layer=layer,
+        model_id=model_id,
+        status="loading",
+        model_class=model_class.__name__,
+    )
+    model = model_class.from_pretrained(load_path)
+    _log_model_load(
+        "weights",
+        layer=layer,
+        model_id=model_id,
+        status="ready",
+        model_class=model_class.__name__,
+        duration_sec=round(time.monotonic() - t1, 2),
+    )
+
+    t2 = time.monotonic()
+    _log_model_load(
+        "device_transfer",
+        layer=layer,
+        model_id=model_id,
+        status="started",
+        target_device=str(device),
+    )
+    model = model.to(device)
     model.eval()
+    _log_model_load(
+        "device_transfer",
+        layer=layer,
+        model_id=model_id,
+        status="ready",
+        target_device=str(device),
+        duration_sec=round(time.monotonic() - t2, 2),
+    )
+
+    total_sec = round(time.monotonic() - t0, 2)
+    _log_model_load(
+        "complete",
+        layer=layer,
+        model_id=model_id,
+        resolved_device=info["resolved"],
+        duration_sec=round(time.monotonic() - bundle_t0, 2),
+        model_load_sec=total_sec,
+    )
     return processor, model, device
+
+
+_model_bundle_cache: tuple[Any, Any, torch.device] | None = None
+
+
+def warm_seamless_model(*, layer: str = "worker") -> None:
+    """Preload SeamlessM4T at worker start so load progress appears in container logs."""
+    global _model_bundle_cache
+    model_id = _seamless_model_id()
+    if _model_bundle_cache is not None:
+        _log_model_load("skipped", layer=layer, model_id=model_id, reason="already_loaded")
+        return
+    _log_model_load("scheduled", layer=layer, model_id=model_id)
+    _model_bundle_cache = _load_model_bundle(layer=layer)
+
+
+def _seamless_model_id() -> str:
+    return getattr(settings, "SEAMLESS_HF_MODEL_ID", "facebook/hf-seamless-m4t-medium")
+
+
+def _model_bundle():
+    global _model_bundle_cache
+    if _model_bundle_cache is None:
+        _model_bundle_cache = _load_model_bundle(layer="pipeline")
+    return _model_bundle_cache
 
 
 def translate_speech_file(

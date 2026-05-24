@@ -38,6 +38,8 @@ services:
     environment:
       CELERY_QUEUE: seamless
       SEAMLESS_DEVICE: cpu
+      HF_HUB_ENABLE_PROGRESS_BARS: "1"
+      TRANSFORMERS_VERBOSITY: info
       CELERY_DEV_RELOAD: "1"
       CELERY_CONCURRENCY: "1"
     entrypoint: ["/app/worker/scripts/entrypoint-celery-dev.sh"]

@@ -57,6 +57,7 @@ docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d --build
 - Кэш Hugging Face / PyTorch: volumes `hf_cache`, `torch_cache`.
 - GPU: `gpus: all` на ML-воркерах, `CELERY_CONCURRENCY=1`, `SEAMLESS_DEVICE=cuda`.
 - Flower (только localhost): `docker compose --profile ops up -d flower`
+- SeamlessM4T: перед стартом загрузить модель на host в `SEAMLESS_HOST_MODEL_DIR` (по умолчанию `/opt/models/seamless-m4t-v2-large`). `worker-seamless` монтирует её read-only в `/models/seamless-m4t-v2-large` и грузит через `transformers.from_pretrained()` без обращения к Hugging Face. Локальную копию можно подготовить командой `python scripts/download-hf-model.py facebook/seamless-m4t-v2-large --output-dir models/seamless-m4t-v2-large`.
 - Zeroshot MT: при старте `worker-zeroshot` скачивает SavedModel из S3 (`ZEROSHOT_MT_S3_PREFIX`, по умолчанию `models/zeroshot/trained_8`), грузит в память и удаляет temp-директорию
 
 ### Локальная разработка (без GPU)

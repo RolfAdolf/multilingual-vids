@@ -9,6 +9,7 @@ from django.conf import settings
 from config.json_log import log_event
 from config.worker_enabled import is_worker_enabled, worker_disabled_message
 from flow.zeroshot import mt_client
+from flow.zeroshot.device_init import log_zeroshot_mt_device_init
 from flow.zeroshot.mt_assets import _s3_prefix, download_translator_to_temp
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ def bootstrap_zeroshot_worker() -> None:
     try:
         tmp_dir = download_translator_to_temp()
         mt_client.warm_mt_model(tmp_dir)
+        log_zeroshot_mt_device_init()
         log_event(
             logger,
             logging.INFO,

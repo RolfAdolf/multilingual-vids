@@ -4,3 +4,6 @@
 
 # Public HTTP port for nginx
 HTTP_PORT=80
+
+# Host path with the pre-downloaded SeamlessM4T model.
+SEAMLESS_HOST_MODEL_DIR=/opt/models/seamless-m4t-v2-large

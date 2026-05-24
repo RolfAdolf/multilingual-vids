@@ -109,6 +109,15 @@ services:
       <<: *gpu_worker_env
       CELERY_QUEUE: seamless
       SEAMLESS_DEVICE: cuda
+      SEAMLESS_MODEL_LOCAL_DIR: /models/seamless-m4t-v2-large
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_ENABLE_PROGRESS_BARS: "1"
+      TRANSFORMERS_VERBOSITY: info
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+      - ${SEAMLESS_HOST_MODEL_DIR:-/opt/models/seamless-m4t-v2-large}:/models/seamless-m4t-v2-large:ro
 
   worker-zeroswot:
     <<: *ml_worker
