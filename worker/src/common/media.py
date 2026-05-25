@@ -188,6 +188,120 @@ def match_audio_duration(
     }
 
 
+def iter_segment_ranges(total_sec: float, segment_sec: float) -> list[tuple[float, float]]:
+    """Return (start_sec, duration_sec) for each segment."""
+    if total_sec <= 0:
+        return []
+    if segment_sec <= 0:
+        return [(0.0, total_sec)]
+    ranges: list[tuple[float, float]] = []
+    start = 0.0
+    while start < total_sec - 0.01:
+        duration = min(segment_sec, total_sec - start)
+        ranges.append((start, duration))
+        start += duration
+    return ranges
+
+
+def cut_video_segment(
+    source_video: Path,
+    output_video: Path,
+    *,
+    start_sec: float,
+    duration_sec: float,
+) -> None:
+    """Cut a [start, start+duration) piece with video+audio (re-encode for accurate boundaries)."""
+    ensure_non_empty_file(source_video)
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(source_video),
+            "-ss",
+            f"{start_sec:.3f}",
+            "-t",
+            f"{duration_sec:.3f}",
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(output_video),
+        ],
+        action="video segment cut",
+    )
+    ensure_non_empty_file(output_video)
+    assert_has_audio_stream(output_video)
+
+
+def concat_video_segments(segment_paths: list[Path], output_path: Path) -> None:
+    if not segment_paths:
+        raise MediaProcessingError("No video segments to concatenate")
+    if len(segment_paths) == 1:
+        shutil.copyfile(segment_paths[0], output_path)
+        return
+
+    list_file = output_path.with_name(f"{output_path.stem}_concat.txt")
+    lines = [f"file '{path.resolve()}'" for path in segment_paths]
+    list_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-c",
+            "copy",
+            str(output_path),
+        ],
+        action="video concat",
+    )
+    ensure_non_empty_file(output_path)
+
+
+def concat_wav_files(wav_paths: list[Path], output_wav: Path) -> None:
+    if not wav_paths:
+        raise MediaProcessingError("No WAV files to concatenate")
+    if len(wav_paths) == 1:
+        shutil.copyfile(wav_paths[0], output_wav)
+        return
+
+    inputs: list[str] = []
+    for path in wav_paths:
+        inputs.extend(["-i", str(path)])
+    filter_inputs = "".join(f"[{index}:a]" for index in range(len(wav_paths)))
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            *inputs,
+            "-filter_complex",
+            f"{filter_inputs}concat=n={len(wav_paths)}:v=0:a=1[outa]",
+            "-map",
+            "[outa]",
+            str(output_wav),
+        ],
+        action="wav concat",
+    )
+    ensure_non_empty_file(output_wav)
+
+
 def mux_video_with_audio(video_path: Path, audio_path: Path, output_path: Path) -> None:
     ensure_non_empty_file(video_path)
     ensure_non_empty_file(audio_path)

@@ -15,6 +15,7 @@ dist
 
 __pycache__
 .cache
+core-api/src/staticfiles/
 
 log
 logs

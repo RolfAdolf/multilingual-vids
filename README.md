@@ -92,6 +92,20 @@ docker compose exec core-api python manage.py configure_s3_cors
 
 В консоли Yandex Cloud: бакет → **Безопасность** → **CORS** — те же origins, что в `S3_CORS_ALLOWED_ORIGINS` (`.envs/.s3`).
 
+### Django Admin
+
+URL: `http://<хост>/admin/` (через nginx в prod).
+
+**Готового логина/пароля в репозитории нет** — один раз создай суперпользователя:
+
+```bash
+docker compose exec core-api python manage.py createsuperuser
+```
+
+(или `./scripts/compose-prod.sh exec core-api python manage.py createsuperuser` на GPU-сервере)
+
+Статика админки (`DEBUG=false`): WhiteNoise + `collectstatic` при старте `core-api`. После обновления пересобери `core-api` и `nginx`.
+
 ## Локально (Python 3.10)
 
 **API:**

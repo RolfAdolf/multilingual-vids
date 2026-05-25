@@ -18,6 +18,7 @@ boto3 = "^1.43.10"
 celery = { version = "^5.4", extras = ["redis"] }
 django-celery-results = "^2.5"
 redis = "^5.1"
+whitenoise = "^6.7"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6"
