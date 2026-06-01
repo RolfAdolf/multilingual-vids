@@ -110,6 +110,27 @@ SEAMLESS_VIDEO_CHUNK_SECONDS = env.float("SEAMLESS_VIDEO_CHUNK_SECONDS", default
 # Legacy alias; if >0 and VIDEO_CHUNK is 0, pipeline falls back to this value.
 SEAMLESS_CHUNK_MAX_SECONDS = env.float("SEAMLESS_CHUNK_MAX_SECONDS", default=5.0)
 
+ZEROSWOT_ENCODER_HF_ID = env(
+    "ZEROSWOT_ENCODER_HF_ID",
+    default="johntsi/ZeroSwot-Large_asr-cv_en-to-200",
+)
+ZEROSWOT_ENCODER_REVISION = env(
+    "ZEROSWOT_ENCODER_REVISION",
+    default="fc0da35496bd26102f342b0694a3a89791eb713c",
+)
+ZEROSWOT_WAV2VEC_PROCESSOR_ID = env(
+    "ZEROSWOT_WAV2VEC_PROCESSOR_ID",
+    default="facebook/wav2vec2-large-960h-lv60-self",
+)
+ZEROSWOT_NLLB_HF_ID = env(
+    "ZEROSWOT_NLLB_HF_ID",
+    default="facebook/nllb-200-distilled-1.3B",
+)
+ZEROSWOT_DEVICE = env("ZEROSWOT_DEVICE", default="auto")
+ZEROSWOT_NUM_BEAMS = env.int("ZEROSWOT_NUM_BEAMS", default=5)
+ZEROSWOT_VIDEO_CHUNK_SECONDS = env.float("ZEROSWOT_VIDEO_CHUNK_SECONDS", default=30.0)
+ZEROSWOT_CHUNK_MAX_SECONDS = env.float("ZEROSWOT_CHUNK_MAX_SECONDS", default=30.0)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -124,6 +145,7 @@ LOGGING = {
         "tasks": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "flow": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "flow.seamless": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "flow.zeroswot": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "huggingface_hub": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "transformers": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },

@@ -47,6 +47,10 @@ if is_worker_enabled():
             from flow.zeroshot.device_init import log_zeroshot_whisper_device_init
 
             log_zeroshot_whisper_device_init()
+        elif queue == "zeroswot":
+            from flow.zeroswot.bootstrap import bootstrap_zeroswot_worker
+
+            bootstrap_zeroswot_worker()
 
 if os.environ.get("CELERY_QUEUE") == "zeroshot" and is_worker_enabled():
     from celery.signals import worker_process_init

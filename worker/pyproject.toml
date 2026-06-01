@@ -37,6 +37,7 @@ torch = "^2.4"
 transformers = "^4.44"
 torchaudio = "^2.4"
 sentencepiece = "^0.2"
+edge-tts = "^6.1"
 
 [tool.poetry.group.zeroshot]
 optional = true

@@ -6,6 +6,8 @@ import uuid
 from django.utils import timezone
 
 from common.media import MediaProcessingError
+from flow.zeroswot.pipeline import ZeroSwotSourceNotSupportedError
+from languages.lang_mapping import UnknownLanguageCodeError, ZeroshotPairNotSupportedError
 from config.celery import app
 from config.json_log import log_event, log_exception
 from config.worker_enabled import is_worker_enabled, worker_disabled_message
@@ -117,6 +119,23 @@ def translate_video_task(self, video_id: str, model_slug: str, worker_queue: str
             logger,
             logging.WARNING,
             "worker.task.translate.media_error",
+            layer="task",
+            task_id=task_id,
+            video_id=video_id,
+            model_slug=model_slug,
+            error_message=str(exc),
+        )
+        return
+    except (
+        ZeroSwotSourceNotSupportedError,
+        UnknownLanguageCodeError,
+        ZeroshotPairNotSupportedError,
+    ) as exc:
+        mark_video_error(vid, str(exc))
+        log_event(
+            logger,
+            logging.WARNING,
+            "worker.task.translate.validation_error",
             layer="task",
             task_id=task_id,
             video_id=video_id,

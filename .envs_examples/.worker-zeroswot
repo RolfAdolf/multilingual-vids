@@ -1,3 +1,14 @@
-# Очередь zeroswot (ZeroSwot)
+# Очередь zeroswot (ZeroSwot encoder + NLLB + edge-tts)
 CELERY_QUEUE=zeroswot
-WORKER_ENABLED=false
+WORKER_ENABLED=true
+
+# Hugging Face models (see https://huggingface.co/johntsi/ZeroSwot-Large_asr-cv_en-to-200)
+ZEROSWOT_ENCODER_HF_ID=johntsi/ZeroSwot-Large_asr-cv_en-to-200
+ZEROSWOT_ENCODER_REVISION=fc0da35496bd26102f342b0694a3a89791eb713c
+ZEROSWOT_WAV2VEC_PROCESSOR_ID=facebook/wav2vec2-large-960h-lv60-self
+ZEROSWOT_NLLB_HF_ID=facebook/nllb-200-distilled-1.3B
+ZEROSWOT_DEVICE=auto
+ZEROSWOT_NUM_BEAMS=5
+
+# Long video: segment length in seconds (0 = single pass over full file)
+ZEROSWOT_VIDEO_CHUNK_SECONDS=30
