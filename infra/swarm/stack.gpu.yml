@@ -1,0 +1,37 @@
+# GPU overlay for Swarm (NVIDIA Container Toolkit on GPU nodes).
+# Usage: ./scripts/swarm-deploy.sh  (includes this file automatically)
+
+services:
+  worker-seamless:
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+      - type: bind
+        source: ${SEAMLESS_HOST_MODEL_DIR:-/opt/models/seamless-m4t-v2-large}
+        target: /models/seamless-m4t-v2-large
+        read_only: true
+    deploy:
+      resources:
+        reservations:
+          generic_resources:
+            - discrete_resource_spec:
+                kind: GPU
+                value: 1
+
+  worker-zeroswot:
+    deploy:
+      resources:
+        reservations:
+          generic_resources:
+            - discrete_resource_spec:
+                kind: GPU
+                value: 1
+
+  worker-zeroshot:
+    deploy:
+      resources:
+        reservations:
+          generic_resources:
+            - discrete_resource_spec:
+                kind: GPU
+                value: 1

@@ -1,0 +1,29 @@
+# Optional ops overlay: Celery Flower (host port 5555 on the task node).
+# Deploy together with the main stack: ./scripts/swarm-deploy.sh --with-ops
+
+services:
+  flower:
+    image: ${IMAGE_PREFIX:-multilingual-vids/}worker-cpu:${IMAGE_TAG:-latest}
+    env_file:
+      - ../../.envs/.broker
+      - ../../.envs/.db
+    environment:
+      CORE_SRC_PATH: /app/core-api/src
+      DJANGO_SETTINGS_MODULE: config.settings
+    entrypoint: []
+    command: ["celery", "-A", "config", "flower", "--port=5555"]
+    working_dir: /app/worker/src
+    ports:
+      - target: 5555
+        published: 5555
+        protocol: tcp
+        mode: host
+    networks:
+      - app_net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure

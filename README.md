@@ -52,6 +52,23 @@ docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d --build
 # или: ./scripts/compose-prod.sh up -d --build
 ```
 
+### Production (Docker Swarm)
+
+Кластер из нескольких нод или один manager с labels `db`, `gpu`, `edge`. Подробно: [infra/swarm/README.md](infra/swarm/README.md).
+
+```bash
+cp .envs_examples/* .envs/
+cp infra/swarm/env/stack.env.example infra/swarm/env/stack.env
+
+chmod +x scripts/swarm-*.sh
+./scripts/swarm-init.sh
+./scripts/swarm-build-images.sh
+./scripts/swarm-deploy.sh              # + stack.gpu.yaml
+./scripts/swarm-deploy.sh --with-ops   # опционально Flower :5555
+```
+
+Образы нужно собрать **до** `stack deploy` (в stack-файлах нет `build:`). Обновление: новый `IMAGE_TAG` → `swarm-build-images.sh` → `swarm-deploy.sh`.
+
 - Снаружи открыт только **nginx** (`HTTP_PORT`, по умолчанию 80).
 - Postgres / RabbitMQ / Redis — только внутри сети Compose.
 - Кэш Hugging Face / PyTorch: volumes `hf_cache`, `torch_cache`.
@@ -126,3 +143,11 @@ cd src && poetry run celery -A config worker -Q seamless
 ```
 
 Обучение MT: `../diploma/scripts/train_zeroshot_mt.py`.
+
+## Тесты (core-api)
+
+```bash
+cd core-api && poetry install --with dev && poetry run pytest
+```
+
+SQLite in-memory, без Postgres/S3 (см. `src/config/settings_test.py`).

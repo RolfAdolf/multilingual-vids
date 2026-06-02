@@ -1,0 +1,234 @@
+# Docker Swarm stack (Compose 3.8).
+# Build images first: ./scripts/swarm-build-images.sh
+# Deploy: ./scripts/swarm-deploy.sh
+#
+# Requires .envs/* (see .envs_examples/) and infra/swarm/env/stack.env
+
+x-logging: &json_logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-deploy-default: &deploy_default
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 5
+  update_config:
+    parallelism: 1
+    delay: 10s
+    failure_action: rollback
+    order: start-first
+  rollback_config:
+    parallelism: 1
+    delay: 5s
+
+x-gpu-worker-env: &gpu_worker_env
+  CELERY_CONCURRENCY: "1"
+  NVIDIA_VISIBLE_DEVICES: all
+  NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+x-ml-worker-deploy: &ml_worker_deploy
+  <<: *deploy_default
+  replicas: 1
+  placement:
+    constraints:
+      - node.labels.gpu == true
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mv}
+      POSTGRES_DB: ${POSTGRES_DB:-multilingual_videos}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      <<: *deploy_default
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.db == true
+    logging: *json_logging
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      <<: *deploy_default
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.db == true
+    logging: *json_logging
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_net
+    deploy:
+      <<: *deploy_default
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.db == true
+    logging: *json_logging
+
+  core-api:
+    image: ${IMAGE_PREFIX:-multilingual-vids/}core-api:${IMAGE_TAG:-latest}
+    env_file:
+      - ../../.envs/.db
+      - ../../.envs/.s3
+      - ../../.envs/.core-api
+    environment:
+      DEBUG: "false"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
+    networks:
+      - app_net
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2
+      --timeout 120 --access-logfile - --error-logfile -"
+    working_dir: /app/src
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    deploy:
+      <<: *deploy_default
+      replicas: ${CORE_API_REPLICAS:-1}
+    logging: *json_logging
+
+  worker-seamless:
+    image: ${IMAGE_PREFIX:-multilingual-vids/}worker-seamless:${IMAGE_TAG:-latest}
+    env_file:
+      - ../../.envs/.s3
+      - ../../.envs/.worker
+      - ../../.envs/.worker-seamless
+    environment:
+      <<: *gpu_worker_env
+      CELERY_QUEUE: seamless
+      SEAMLESS_DEVICE: cuda
+      SEAMLESS_MODEL_LOCAL_DIR: /models/seamless-m4t-v2-large
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+    networks:
+      - app_net
+    deploy:
+      <<: *ml_worker_deploy
+    logging: *json_logging
+
+  worker-zeroswot:
+    image: ${IMAGE_PREFIX:-multilingual-vids/}worker-zeroswot:${IMAGE_TAG:-latest}
+    env_file:
+      - ../../.envs/.s3
+      - ../../.envs/.worker
+      - ../../.envs/.worker-zeroswot
+    environment:
+      <<: *gpu_worker_env
+      CELERY_QUEUE: zeroswot
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+    networks:
+      - app_net
+    deploy:
+      <<: *ml_worker_deploy
+    logging: *json_logging
+
+  worker-zeroshot:
+    image: ${IMAGE_PREFIX:-multilingual-vids/}worker-zeroshot:${IMAGE_TAG:-latest}
+    env_file:
+      - ../../.envs/.s3
+      - ../../.envs/.worker
+      - ../../.envs/.worker-zeroshot
+    environment:
+      <<: *gpu_worker_env
+      CELERY_QUEUE: zeroshot
+      ZEROSHOT_MT_S3_PREFIX: models/zeroshot/trained_8
+      ZEROSHOT_WHISPER_DEVICE: cuda
+      ZEROSHOT_WHISPER_COMPUTE_TYPE: float16
+      ZEROSHOT_WHISPER_MODEL: large-v3
+      TF_FORCE_GPU_ALLOW_GROWTH: "true"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+    networks:
+      - app_net
+    deploy:
+      <<: *ml_worker_deploy
+    logging: *json_logging
+
+  frontend:
+    image: ${IMAGE_PREFIX:-multilingual-vids/}frontend:${IMAGE_TAG:-latest}
+    networks:
+      - app_net
+    deploy:
+      <<: *deploy_default
+      replicas: ${FRONTEND_REPLICAS:-1}
+    logging: *json_logging
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - target: 80
+        published: ${HTTP_PORT:-80}
+        protocol: tcp
+        mode: host
+    configs:
+      - source: nginx_prod_conf
+        target: /etc/nginx/conf.d/default.conf
+    networks:
+      - app_net
+    deploy:
+      <<: *deploy_default
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.edge == true
+    logging: *json_logging
+
+networks:
+  app_net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  pg_data:
+  rabbitmq_data:
+  redis_data:
+  hf_cache:
+  torch_cache:
+
+configs:
+  nginx_prod_conf:
+    file: ../nginx/prod.conf
