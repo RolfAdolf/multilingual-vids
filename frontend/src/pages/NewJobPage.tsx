@@ -16,7 +16,7 @@ export function NewJobPage() {
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState("de");
-  const [target, setTarget] = useState("uk");
+  const [target, setTarget] = useState("en");
   const [modelId, setModelId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +50,7 @@ export function NewJobPage() {
       const { upload_url, object_key, headers } = await createUploadUrl(
         file.name,
         file.type || "video/mp4",
-        file.size
+        file.size,
       );
       let put: Response;
       try {
@@ -64,13 +64,13 @@ export function NewJobPage() {
         });
       } catch {
         throw new Error(
-          "Upload to storage failed (network/CORS). Run: docker compose exec core-api python manage.py configure_s3_cors"
+          "Upload to storage failed (network/CORS). Run: docker compose exec core-api python manage.py configure_s3_cors",
         );
       }
       if (!put.ok) {
         const detail = await put.text().catch(() => "");
         throw new Error(
-          `Upload to storage failed: HTTP ${put.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`
+          `Upload to storage failed: HTTP ${put.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`,
         );
       }
       return createVideo(object_key, source, target, modelId, file.name);
@@ -86,8 +86,13 @@ export function NewJobPage() {
   };
 
   const kpiChips = useMemo(
-    () => ["Max 500 MB", "MP4 · WebM · MOV · MKV", POLL_HINT, "Result retention 30 days"],
-    []
+    () => [
+      "Max 500 MB",
+      "MP4 · WebM · MOV · MKV",
+      POLL_HINT,
+      "Result retention 30 days",
+    ],
+    [],
   );
 
   return (
@@ -114,7 +119,10 @@ export function NewJobPage() {
             <div className="lang-row">
               <label>
                 Source
-                <select value={source} onChange={(e) => setSource(e.target.value)}>
+                <select
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
+                >
                   {languages.map((l) => (
                     <option key={`s-${l.code}`} value={l.code}>
                       {l.name_en} ({l.code})
@@ -122,12 +130,20 @@ export function NewJobPage() {
                   ))}
                 </select>
               </label>
-              <button type="button" className="btn btn--ghost" onClick={swapLanguages} title="Swap">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={swapLanguages}
+                title="Swap"
+              >
                 ⇄
               </button>
               <label>
                 Target
-                <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                <select
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                >
                   {languages.map((l) => (
                     <option key={`t-${l.code}`} value={l.code}>
                       {l.name_en} ({l.code})
@@ -196,7 +212,9 @@ export function NewJobPage() {
           <li>{POLL_HINT} after job is created</li>
         </ul>
         <h3>Secure upload</h3>
-        <p className="muted">Files go directly to object storage; API never stores raw video bytes.</p>
+        <p className="muted">
+          Files go directly to object storage; API never stores raw video bytes.
+        </p>
       </aside>
     </div>
   );
