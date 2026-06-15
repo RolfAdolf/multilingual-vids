@@ -5,8 +5,8 @@ import uuid
 
 from django.utils import timezone
 
+from common.errors import ZeroSwotSourceNotSupportedError
 from common.media import MediaProcessingError
-from flow.zeroswot.pipeline import ZeroSwotSourceNotSupportedError
 from languages.lang_mapping import UnknownLanguageCodeError, ZeroshotPairNotSupportedError
 from config.celery import app
 from config.json_log import log_event, log_exception
