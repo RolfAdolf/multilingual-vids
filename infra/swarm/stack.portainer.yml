@@ -1,0 +1,53 @@
+# Portainer CE — UI for Docker Swarm (stacks, services, logs, nodes).
+# Deploy once per cluster (separate from the app stack):
+#   ./scripts/swarm-deploy-portainer.sh
+#
+# First visit: https://<manager>:9443 or http://<manager>:9000
+# Choose "Get Started" → connect to the local Swarm endpoint.
+
+services:
+  agent:
+    image: portainer/agent:2.33.6
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks:
+      - agent_network
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.platform.os == linux
+
+  portainer:
+    image: portainer/portainer-ce:2.33.6
+    command: -H tcp://tasks.agent:9001 --tlsskipverify
+    ports:
+      - target: 9000
+        published: ${PORTAINER_HTTP_PORT:-9000}
+        protocol: tcp
+        mode: host
+      - target: 9443
+        published: ${PORTAINER_HTTPS_PORT:-9443}
+        protocol: tcp
+        mode: host
+    volumes:
+      - portainer_data:/data
+    networks:
+      - agent_network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+networks:
+  agent_network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  portainer_data:

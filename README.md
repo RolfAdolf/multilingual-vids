@@ -54,26 +54,31 @@ docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d --build
 
 ### Production (Docker Swarm)
 
-Кластер из нескольких нод или один manager с labels `db`, `gpu`, `edge`. Подробно: [infra/swarm/README.md](infra/swarm/README.md).
+Кластер из нескольких нод или один GPU-сервер с labels `db`, `gpu`, `edge`.
+
+**Полная инструкция:** [infra/swarm/README.md](infra/swarm/README.md)  
+**Два сервера (CPU + GPU):** [infra/swarm/DEPLOY-2-NODES.md](infra/swarm/DEPLOY-2-NODES.md)
 
 ```bash
 cp .envs_examples/* .envs/
 cp infra/swarm/env/stack.env.example infra/swarm/env/stack.env
+# отредактировать .envs (S3, пароли, домен) и stack.env
 
 chmod +x scripts/swarm-*.sh
 ./scripts/swarm-init.sh
 ./scripts/swarm-build-images.sh
-./scripts/swarm-deploy.sh              # + stack.gpu.yaml
-./scripts/swarm-deploy.sh --with-ops   # опционально Flower :5555
+./scripts/swarm-deploy.sh
+./scripts/swarm-deploy-portainer.sh    # UI мониторинга (опционально)
 ```
 
-Образы нужно собрать **до** `stack deploy` (в stack-файлах нет `build:`). Обновление: новый `IMAGE_TAG` → `swarm-build-images.sh` → `swarm-deploy.sh`.
+Образы собираются **до** deploy (`swarm-build-images.sh`). Мониторинг: Portainer (стеки/логи), Flower (`--with-ops`), Django Admin.
 
 - Снаружи открыт только **nginx** (`HTTP_PORT`, по умолчанию 80).
 - Postgres / RabbitMQ / Redis — только внутри сети Compose.
 - Кэш Hugging Face / PyTorch: volumes `hf_cache`, `torch_cache`.
 - GPU: `gpus: all` на ML-воркерах, `CELERY_CONCURRENCY=1`, `SEAMLESS_DEVICE=cuda`.
 - Flower (только localhost): `docker compose --profile ops up -d flower`
+- Portainer + Flower (Compose): `docker compose --profile ops up -d portainer flower` → `:9000`, `:5555`
 - SeamlessM4T: перед стартом загрузить модель на host в `SEAMLESS_HOST_MODEL_DIR` (по умолчанию `/opt/models/seamless-m4t-v2-large`). `worker-seamless` монтирует её read-only в `/models/seamless-m4t-v2-large` и грузит через `transformers.from_pretrained()` без обращения к Hugging Face. Локальную копию можно подготовить командой `python scripts/download-hf-model.py facebook/seamless-m4t-v2-large --output-dir models/seamless-m4t-v2-large`.
 - Zeroshot MT: при старте `worker-zeroshot` скачивает SavedModel из S3 (`ZEROSHOT_MT_S3_PREFIX`, по умолчанию `models/zeroshot/trained_8`), грузит в память и удаляет temp-директорию
 

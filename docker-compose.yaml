@@ -203,9 +203,23 @@ services:
       - core-api
     logging: *json_logging
 
+  portainer:
+    image: portainer/portainer-ce:2.33.6
+    profiles:
+      - ops
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    logging: *json_logging
+
 volumes:
   pg_data:
   rabbitmq_data:
   redis_data:
   hf_cache:
   torch_cache:
+  portainer_data:

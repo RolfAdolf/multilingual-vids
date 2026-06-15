@@ -123,6 +123,9 @@ services:
     deploy:
       <<: *deploy_default
       replicas: ${CORE_API_REPLICAS:-1}
+      placement:
+        constraints:
+          - node.labels.db == true
     logging: *json_logging
 
   worker-seamless:
@@ -195,6 +198,9 @@ services:
     deploy:
       <<: *deploy_default
       replicas: ${FRONTEND_REPLICAS:-1}
+      placement:
+        constraints:
+          - node.labels.db == true
     logging: *json_logging
 
   nginx:

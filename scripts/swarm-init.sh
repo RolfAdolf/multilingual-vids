@@ -32,7 +32,8 @@ if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   docker node update --label-add gpu=true "$MANAGER_ID"
   echo "GPU label set on manager."
 else
-  echo "nvidia-smi not available — skip gpu label on manager (set manually on GPU nodes)."
+  echo "nvidia-smi not available — skip gpu label on manager."
+  echo "For 2-node cluster: set gpu=true only on the GPU worker (see infra/swarm/DEPLOY-2-NODES.md)."
 fi
 
 echo ""
