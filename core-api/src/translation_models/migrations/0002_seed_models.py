@@ -7,7 +7,7 @@ def seed(apps, schema_editor):
     models_data = [
         {
             "slug": "seamless_m4t",
-            "display_name": "SeamlessM4T",
+            "display_name": "SeamlessM4T Medium",
             "worker_queue": "seamless",
             "description": (
                 "End-to-end speech translation via Meta SeamlessM4T. "
@@ -17,7 +17,7 @@ def seed(apps, schema_editor):
                 "provider": "Meta AI",
                 "tags": ["Recommended", "High Quality"],
                 "pipeline_summary": "Audio in → SeamlessM4T → translated audio out",
-                "hf_model_id": "facebook/seamless-m4t-v2-large",
+                "hf_model_id": "facebook/hf-seamless-m4t-medium",
                 "sample_rate_hz": 16000,
             },
         },

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from django.conf import settings
 
-from common.errors import ZeroSwotSourceNotSupportedError
 from common.media import (
     concat_video_segments,
     concat_wav_files,
@@ -34,6 +33,10 @@ from video.models import Video
 logger = logging.getLogger(__name__)
 
 EN_SOURCE_API = "en"
+
+
+class ZeroSwotSourceNotSupportedError(ValueError):
+    """ZeroSwot-Large_asr-cv is trained for English source speech only."""
 
 
 def _video_chunk_seconds() -> float:
